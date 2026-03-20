@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { quadrantGroupService } from "@/lib/quadrant-groups/quadrant-group.service";
+import {
+  QuadrantGroupCodeAlreadyExistsError,
+  QuadrantGroupNameAlreadyExistsError,
+  quadrantGroupService,
+} from "@/lib/quadrant-groups/quadrant-group.service";
 
 function parseBoolean(value: string | null) {
   if (value === null) {
@@ -59,22 +63,72 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const contentType = request.headers.get("content-type") || "";
 
-    const created = await quadrantGroupService.create({
-      workAreaId: typeof body.workAreaId === "string" ? body.workAreaId : "",
-      code: typeof body.code === "string" ? body.code : "",
-      name: typeof body.name === "string" ? body.name : "",
-      description:
+    let workAreaId = "";
+    let code = "";
+    let name = "";
+    let description: string | null | undefined = undefined;
+    let displayOrder: number | undefined = undefined;
+    let isActive: boolean | undefined = undefined;
+
+    if (contentType.includes("application/json")) {
+      const body = await request.json();
+
+      workAreaId = typeof body.workAreaId === "string" ? body.workAreaId : "";
+      code = typeof body.code === "string" ? body.code : "";
+      name = typeof body.name === "string" ? body.name : "";
+      description =
         typeof body.description === "string" || body.description === null
           ? body.description
-          : undefined,
-      displayOrder: parseInteger(body.displayOrder),
-      isActive: typeof body.isActive === "boolean" ? body.isActive : undefined,
+          : undefined;
+      displayOrder = parseInteger(body.displayOrder);
+      isActive = typeof body.isActive === "boolean" ? body.isActive : undefined;
+    } else {
+      const formData = await request.formData();
+
+      workAreaId = formData.get("workAreaId")?.toString() ?? "";
+      code = formData.get("code")?.toString() ?? "";
+      name = formData.get("name")?.toString() ?? "";
+
+      const descriptionValue = formData.get("description")?.toString();
+      description =
+        typeof descriptionValue === "string" ? descriptionValue : undefined;
+
+      displayOrder = parseInteger(formData.get("displayOrder")?.toString() ?? undefined);
+
+      const isActiveValue = formData.get("isActive")?.toString() ?? null;
+      isActive = parseBoolean(isActiveValue);
+    }
+
+    const created = await quadrantGroupService.create({
+      workAreaId,
+      code,
+      name,
+      description,
+      displayOrder,
+      isActive,
     });
+
+    if (!contentType.includes("application/json")) {
+      return NextResponse.redirect(
+        new URL(
+          `/maestros/departamentos/${created.workArea.departmentId}/zonas-trabajo/${created.workAreaId}/grupos-cuadrante`,
+          request.url
+        )
+      );
+    }
 
     return NextResponse.json(created, { status: 201 });
   } catch (error) {
+    if (error instanceof QuadrantGroupCodeAlreadyExistsError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+
+    if (error instanceof QuadrantGroupNameAlreadyExistsError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+
     const message =
       error instanceof Error ? error.message : "Error al crear el grupo de cuadrante.";
 
