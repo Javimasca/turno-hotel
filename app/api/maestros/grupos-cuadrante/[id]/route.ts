@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { workAreaService } from "@/lib/work-areas/work-area.service";
+import {
+  quadrantGroupService,
+  QuadrantGroupCodeAlreadyExistsError,
+  QuadrantGroupNameAlreadyExistsError,
+  QuadrantGroupNotFoundError,
+} from "@/lib/quadrant-groups/quadrant-group.service";
 
 type RouteContext = {
   params: Promise<{
@@ -79,12 +84,16 @@ export async function GET(
 ) {
   try {
     const { id } = await context.params;
-    const workArea = await workAreaService.getById(id);
+    const quadrantGroup = await quadrantGroupService.getById(id);
 
-    return NextResponse.json(workArea);
+    return NextResponse.json(quadrantGroup);
   } catch (error) {
+    if (error instanceof QuadrantGroupNotFoundError) {
+      return NextResponse.json({ error: error.message }, { status: 404 });
+    }
+
     const message =
-      error instanceof Error ? error.message : "Zona de trabajo no encontrada.";
+      error instanceof Error ? error.message : "Grupo de cuadrante no encontrado.";
 
     return NextResponse.json({ error: message }, { status: 404 });
   }
@@ -98,12 +107,25 @@ export async function PATCH(
     const { id } = await context.params;
     const body = await getRequestBody(request);
 
-    const updated = await workAreaService.update(id, buildUpdateInput(body));
+    const updated = await quadrantGroupService.update(id, buildUpdateInput(body));
 
     return NextResponse.json(updated);
   } catch (error) {
+    if (error instanceof QuadrantGroupNotFoundError) {
+      return NextResponse.json({ error: error.message }, { status: 404 });
+    }
+
+    if (
+      error instanceof QuadrantGroupCodeAlreadyExistsError ||
+      error instanceof QuadrantGroupNameAlreadyExistsError
+    ) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+
     const message =
-      error instanceof Error ? error.message : "Error al actualizar la zona de trabajo.";
+      error instanceof Error
+        ? error.message
+        : "Error al actualizar el grupo de cuadrante.";
 
     return NextResponse.json({ error: message }, { status: 400 });
   }
@@ -116,12 +138,18 @@ export async function DELETE(
   try {
     const { id } = await context.params;
 
-    await workAreaService.delete(id);
+    await quadrantGroupService.delete(id);
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof QuadrantGroupNotFoundError) {
+      return NextResponse.json({ error: error.message }, { status: 404 });
+    }
+
     const message =
-      error instanceof Error ? error.message : "Error al eliminar la zona de trabajo.";
+      error instanceof Error
+        ? error.message
+        : "Error al eliminar el grupo de cuadrante.";
 
     return NextResponse.json({ error: message }, { status: 400 });
   }
@@ -138,13 +166,13 @@ export async function POST(
       typeof body._method === "string" ? body._method.toUpperCase() : "POST";
 
     if (method === "PATCH") {
-      const updated = await workAreaService.update(id, buildUpdateInput(body));
+      const updated = await quadrantGroupService.update(id, buildUpdateInput(body));
 
       return NextResponse.json(updated);
     }
 
     if (method === "DELETE") {
-      await workAreaService.delete(id);
+      await quadrantGroupService.delete(id);
 
       return NextResponse.json({ success: true });
     }
@@ -154,6 +182,17 @@ export async function POST(
       { status: 405 },
     );
   } catch (error) {
+    if (error instanceof QuadrantGroupNotFoundError) {
+      return NextResponse.json({ error: error.message }, { status: 404 });
+    }
+
+    if (
+      error instanceof QuadrantGroupCodeAlreadyExistsError ||
+      error instanceof QuadrantGroupNameAlreadyExistsError
+    ) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+
     const message =
       error instanceof Error ? error.message : "Error al procesar la solicitud.";
 

@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
 import {
   WorkplaceCodeAlreadyExistsError,
@@ -8,10 +8,10 @@ import {
   updateWorkplaceRecord,
 } from '@/lib/workplaces/workplace.service'
 
-type Params = {
-  params: {
+type RouteContext = {
+  params: Promise<{
     id: string
-  }
+  }>
 }
 
 type UpdateWorkplaceBody = {
@@ -31,9 +31,13 @@ function normalizeString(value: unknown) {
   return trimmed.length > 0 ? trimmed : null
 }
 
-export async function GET(_: Request, { params }: Params) {
+export async function GET(
+  _request: NextRequest,
+  context: RouteContext,
+) {
   try {
-    const workplace = await getWorkplaceById(params.id)
+    const { id } = await context.params
+    const workplace = await getWorkplaceById(id)
 
     return NextResponse.json({
       data: workplace,
@@ -55,7 +59,10 @@ export async function GET(_: Request, { params }: Params) {
   }
 }
 
-export async function PATCH(request: Request, { params }: Params) {
+export async function PATCH(
+  request: NextRequest,
+  context: RouteContext,
+) {
   let body: UpdateWorkplaceBody
 
   try {
@@ -67,20 +74,20 @@ export async function PATCH(request: Request, { params }: Params) {
     )
   }
 
-  const code =
+  const normalizedCode =
     body.code !== undefined ? normalizeString(body.code) : undefined
 
-  const name =
+  const normalizedName =
     body.name !== undefined ? normalizeString(body.name) : undefined
 
-  if (body.code !== undefined && !code) {
+  if (body.code !== undefined && !normalizedCode) {
     return NextResponse.json(
       { error: 'El código no puede estar vacío.' },
       { status: 400 },
     )
   }
 
-  if (body.name !== undefined && !name) {
+  if (body.name !== undefined && !normalizedName) {
     return NextResponse.json(
       { error: 'El nombre no puede estar vacío.' },
       { status: 400 },
@@ -88,9 +95,11 @@ export async function PATCH(request: Request, { params }: Params) {
   }
 
   try {
-    const workplace = await updateWorkplaceRecord(params.id, {
-      ...(code !== undefined ? { code } : {}),
-      ...(name !== undefined ? { name } : {}),
+    const { id } = await context.params
+
+    const workplace = await updateWorkplaceRecord(id, {
+      ...(typeof normalizedCode === 'string' ? { code: normalizedCode } : {}),
+      ...(typeof normalizedName === 'string' ? { name: normalizedName } : {}),
       ...(body.description !== undefined
         ? { description: normalizeString(body.description) }
         : {}),
@@ -126,9 +135,14 @@ export async function PATCH(request: Request, { params }: Params) {
   }
 }
 
-export async function DELETE(_: Request, { params }: Params) {
+export async function DELETE(
+  _request: NextRequest,
+  context: RouteContext,
+) {
   try {
-    await deleteWorkplaceRecord(params.id)
+    const { id } = await context.params
+
+    await deleteWorkplaceRecord(id)
 
     return NextResponse.json({
       success: true,

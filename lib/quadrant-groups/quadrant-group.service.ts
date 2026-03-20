@@ -12,6 +12,31 @@ type CreateQuadrantGroupServiceInput = CreateQuadrantGroupInput;
 
 type UpdateQuadrantGroupServiceInput = UpdateQuadrantGroupInput;
 
+export class QuadrantGroupNotFoundError extends Error {
+  constructor(message = "El grupo de cuadrante no existe.") {
+    super(message);
+    this.name = "QuadrantGroupNotFoundError";
+  }
+}
+
+export class QuadrantGroupCodeAlreadyExistsError extends Error {
+  constructor(
+    message = "Ya existe un grupo de cuadrante con ese código en la zona de trabajo.",
+  ) {
+    super(message);
+    this.name = "QuadrantGroupCodeAlreadyExistsError";
+  }
+}
+
+export class QuadrantGroupNameAlreadyExistsError extends Error {
+  constructor(
+    message = "Ya existe un grupo de cuadrante con ese nombre en la zona de trabajo.",
+  ) {
+    super(message);
+    this.name = "QuadrantGroupNameAlreadyExistsError";
+  }
+}
+
 function normalizeCode(value: string) {
   return value.trim().toUpperCase();
 }
@@ -42,7 +67,7 @@ export const quadrantGroupService = {
     const quadrantGroup = await quadrantGroupRepository.findById(id);
 
     if (!quadrantGroup) {
-      throw new Error("El grupo de cuadrante no existe.");
+      throw new QuadrantGroupNotFoundError();
     }
 
     return quadrantGroup;
@@ -84,16 +109,22 @@ export const quadrantGroupService = {
       throw new Error("La zona de trabajo no existe.");
     }
 
-    const existingByCode = await quadrantGroupRepository.findByCodeInWorkArea(workAreaId, code);
+    const existingByCode = await quadrantGroupRepository.findByCodeInWorkArea(
+      workAreaId,
+      code,
+    );
 
     if (existingByCode) {
-      throw new Error("Ya existe un grupo de cuadrante con ese código en la zona de trabajo.");
+      throw new QuadrantGroupCodeAlreadyExistsError();
     }
 
-    const existingByName = await quadrantGroupRepository.findByNameInWorkArea(workAreaId, name);
+    const existingByName = await quadrantGroupRepository.findByNameInWorkArea(
+      workAreaId,
+      name,
+    );
 
     if (existingByName) {
-      throw new Error("Ya existe un grupo de cuadrante con ese nombre en la zona de trabajo.");
+      throw new QuadrantGroupNameAlreadyExistsError();
     }
 
     return quadrantGroupRepository.create({
@@ -110,14 +141,18 @@ export const quadrantGroupService = {
     const current = await quadrantGroupRepository.findById(id);
 
     if (!current) {
-      throw new Error("El grupo de cuadrante no existe.");
+      throw new QuadrantGroupNotFoundError();
     }
 
-    const nextCode = input.code !== undefined ? normalizeCode(input.code) : undefined;
-    const nextName = input.name !== undefined ? normalizeName(input.name) : undefined;
+    const nextCode =
+      input.code !== undefined ? normalizeCode(input.code) : undefined;
+    const nextName =
+      input.name !== undefined ? normalizeName(input.name) : undefined;
     const nextDescription = normalizeDescription(input.description);
     const nextDisplayOrder =
-      input.displayOrder !== undefined ? normalizeDisplayOrder(input.displayOrder) : undefined;
+      input.displayOrder !== undefined
+        ? normalizeDisplayOrder(input.displayOrder)
+        : undefined;
 
     if (nextCode !== undefined && !nextCode) {
       throw new Error("El código es obligatorio.");
@@ -141,7 +176,7 @@ export const quadrantGroupService = {
       );
 
       if (existingByCode && existingByCode.id !== id) {
-        throw new Error("Ya existe un grupo de cuadrante con ese código en la zona de trabajo.");
+        throw new QuadrantGroupCodeAlreadyExistsError();
       }
     }
 
@@ -152,7 +187,7 @@ export const quadrantGroupService = {
       );
 
       if (existingByName && existingByName.id !== id) {
-        throw new Error("Ya existe un grupo de cuadrante con ese nombre en la zona de trabajo.");
+        throw new QuadrantGroupNameAlreadyExistsError();
       }
     }
 
@@ -160,7 +195,9 @@ export const quadrantGroupService = {
       ...(nextCode !== undefined ? { code: nextCode } : {}),
       ...(nextName !== undefined ? { name: nextName } : {}),
       ...(input.description !== undefined ? { description: nextDescription } : {}),
-      ...(nextDisplayOrder !== undefined ? { displayOrder: nextDisplayOrder } : {}),
+      ...(nextDisplayOrder !== undefined
+        ? { displayOrder: nextDisplayOrder }
+        : {}),
       ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
     });
   },
@@ -169,7 +206,7 @@ export const quadrantGroupService = {
     const current = await quadrantGroupRepository.findById(id);
 
     if (!current) {
-      throw new Error("El grupo de cuadrante no existe.");
+      throw new QuadrantGroupNotFoundError();
     }
 
     return quadrantGroupRepository.delete(id);
