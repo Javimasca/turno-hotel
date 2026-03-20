@@ -42,6 +42,7 @@ export default function EditWorkplacePage({
   })
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   useEffect(() => {
@@ -149,6 +150,49 @@ export default function EditWorkplacePage({
       setErrorMessage('Se ha producido un error inesperado al guardar.')
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  async function handleDelete() {
+    if (!workplaceId) {
+      setErrorMessage('No se ha podido identificar el lugar de trabajo.')
+      return
+    }
+
+    const confirmed = window.confirm(
+      '¿Seguro que queremos eliminar este lugar de trabajo?',
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    setErrorMessage(null)
+    setIsDeleting(true)
+
+    try {
+      const response = await fetch(
+        `/api/maestros/lugares-trabajo/${workplaceId}`,
+        {
+          method: 'DELETE',
+        },
+      )
+
+      const json = (await response.json()) as { error?: string }
+
+      if (!response.ok) {
+        setErrorMessage(
+          json.error ?? 'No se pudo eliminar el lugar de trabajo.',
+        )
+        return
+      }
+
+      router.push('/maestros/lugares-trabajo')
+      router.refresh()
+    } catch {
+      setErrorMessage('Se ha producido un error inesperado al eliminar.')
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -310,7 +354,7 @@ export default function EditWorkplacePage({
                           code: event.target.value,
                         }))
                       }
-                      disabled={isSubmitting}
+                      disabled={isSubmitting || isDeleting}
                     />
                   </div>
 
@@ -330,7 +374,7 @@ export default function EditWorkplacePage({
                           name: event.target.value,
                         }))
                       }
-                      disabled={isSubmitting}
+                      disabled={isSubmitting || isDeleting}
                     />
                   </div>
                 </div>
@@ -350,7 +394,7 @@ export default function EditWorkplacePage({
                         description: event.target.value,
                       }))
                     }
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || isDeleting}
                   />
                 </div>
               </div>
@@ -381,7 +425,7 @@ export default function EditWorkplacePage({
                         isActive: event.target.value,
                       }))
                     }
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || isDeleting}
                   >
                     <option value="true">Activo</option>
                     <option value="false">Inactivo</option>
@@ -408,9 +452,18 @@ export default function EditWorkplacePage({
               </Link>
 
               <button
+                type="button"
+                className="button button-danger"
+                onClick={handleDelete}
+                disabled={isSubmitting || isDeleting}
+              >
+                {isDeleting ? 'Eliminando...' : 'Eliminar'}
+              </button>
+
+              <button
                 type="submit"
                 className="button button-primary"
-                disabled={isSubmitting}
+                disabled={isSubmitting || isDeleting}
               >
                 {isSubmitting ? 'Guardando cambios...' : 'Guardar cambios'}
               </button>
