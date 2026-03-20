@@ -1,0 +1,252 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Workplace {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  departments        Department[]
+  employeeWorkplaces EmployeeWorkplace[]
+
+  @@index([name])
+  @@map("workplaces")
+}
+
+model Department {
+  id          String   @id @default(cuid())
+  workplaceId String
+  code        String
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workplace                Workplace               @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+  workAreas                WorkArea[]
+  departmentJobCategories  DepartmentJobCategory[]
+  departmentShiftTemplates DepartmentShiftTemplate[]
+  employeeDepartments      EmployeeDepartment[]
+  shifts                   Shift[]
+
+  @@unique([workplaceId, code])
+  @@unique([workplaceId, name])
+  @@index([workplaceId])
+  @@index([name])
+  @@map("departments")
+}
+
+model WorkArea {
+  id          String   @id @default(cuid())
+  departmentId String
+  code        String
+  name        String
+  description String?
+  displayOrder Int     @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  department              Department              @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  quadrantGroups          QuadrantGroup[]
+  departmentJobCategories DepartmentJobCategory[]
+  shifts                  Shift[]
+
+  @@unique([departmentId, code])
+  @@unique([departmentId, name])
+  @@index([departmentId, displayOrder])
+  @@index([name])
+  @@map("work_areas")
+}
+
+model QuadrantGroup {
+  id           String   @id @default(cuid())
+  workAreaId    String
+  code         String
+  name         String
+  description  String?
+  displayOrder Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  workArea                WorkArea                @relation(fields: [workAreaId], references: [id], onDelete: Cascade)
+  departmentJobCategories DepartmentJobCategory[]
+
+  @@unique([workAreaId, code])
+  @@unique([workAreaId, name])
+  @@index([workAreaId, displayOrder])
+  @@index([name])
+  @@map("quadrant_groups")
+}
+
+model JobCategory {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  name         String   @unique
+  shortName    String?
+  description  String?
+  displayOrder Int      @default(0)
+  textColor    String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  departmentJobCategories DepartmentJobCategory[]
+  employees               Employee[]
+
+  @@index([displayOrder])
+  @@index([name])
+  @@map("job_categories")
+}
+
+model DepartmentJobCategory {
+  id              String   @id @default(cuid())
+  departmentId    String
+  jobCategoryId   String
+  workAreaId      String
+  quadrantGroupId String
+  displayOrder    Int      @default(0)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  department    Department    @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  jobCategory   JobCategory   @relation(fields: [jobCategoryId], references: [id], onDelete: Restrict)
+  workArea      WorkArea      @relation(fields: [workAreaId], references: [id], onDelete: Restrict)
+  quadrantGroup QuadrantGroup @relation(fields: [quadrantGroupId], references: [id], onDelete: Restrict)
+
+  @@unique([departmentId, jobCategoryId, workAreaId, quadrantGroupId])
+  @@index([departmentId, displayOrder])
+  @@index([jobCategoryId])
+  @@index([workAreaId, displayOrder])
+  @@index([quadrantGroupId, displayOrder])
+  @@map("department_job_categories")
+}
+
+model ShiftTemplate {
+  id               String   @id @default(cuid())
+  code             String   @unique
+  name             String   @unique
+  shortName        String?
+  description      String?
+  startMinute      Int
+  endMinute        Int
+  crossesMidnight  Boolean  @default(false)
+  backgroundColor  String?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  departmentShiftTemplates DepartmentShiftTemplate[]
+  shifts                   Shift[]
+
+  @@index([name])
+  @@map("shift_templates")
+}
+
+model DepartmentShiftTemplate {
+  id              String   @id @default(cuid())
+  departmentId    String
+  shiftTemplateId String
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  department    Department    @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  shiftTemplate ShiftTemplate @relation(fields: [shiftTemplateId], references: [id], onDelete: Restrict)
+
+  @@unique([departmentId, shiftTemplateId])
+  @@index([departmentId])
+  @@index([shiftTemplateId])
+  @@map("department_shift_templates")
+}
+
+model Employee {
+  id             String    @id @default(cuid())
+  code           String    @unique
+  firstName      String
+  lastName       String
+  email          String?   @unique
+  phone          String?
+  jobCategoryId  String
+  seniorityDate  DateTime?
+  weeklyHours    Float?
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  jobCategory        JobCategory         @relation(fields: [jobCategoryId], references: [id], onDelete: Restrict)
+  employeeWorkplaces EmployeeWorkplace[]
+  employeeDepartments EmployeeDepartment[]
+  shifts             Shift[]
+
+  @@index([lastName, firstName])
+  @@index([jobCategoryId])
+  @@map("employees")
+}
+
+model EmployeeWorkplace {
+  id          String   @id @default(cuid())
+  employeeId  String
+  workplaceId String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  employee  Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  workplace Workplace @relation(fields: [workplaceId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, workplaceId])
+  @@index([workplaceId])
+  @@map("employee_workplaces")
+}
+
+model EmployeeDepartment {
+  id           String   @id @default(cuid())
+  employeeId    String
+  departmentId  String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  employee   Employee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, departmentId])
+  @@index([departmentId])
+  @@map("employee_departments")
+}
+
+model Shift {
+  id              String   @id @default(cuid())
+  employeeId      String
+  departmentId    String
+  workAreaId      String?
+  shiftTemplateId String
+  date            DateTime
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  employee      Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  department    Department    @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  workArea      WorkArea?     @relation(fields: [workAreaId], references: [id], onDelete: Restrict)
+  shiftTemplate ShiftTemplate @relation(fields: [shiftTemplateId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId, date])
+  @@index([departmentId, date])
+  @@index([workAreaId, date])
+  @@index([shiftTemplateId, date])
+  @@index([date])
+  @@map("shifts")
+}

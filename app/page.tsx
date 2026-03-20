@@ -1,0 +1,228 @@
+import Link from 'next/link'
+
+const mainAreas = [
+  {
+    href: '/maestros',
+    title: 'Maestros',
+    description:
+      'Configuramos lugares de trabajo, departamentos, categorías laborales y turnos maestros.',
+  },
+  {
+    href: '/empleados',
+    title: 'Empleados',
+    description:
+      'Gestionamos fichas de trabajadores, categoría, antigüedad, parcialidad y asignaciones.',
+  },
+  {
+    href: '/planificacion',
+    title: 'Planificación',
+    description:
+      'Organizamos turnos diarios con vista por día, semana y mes, filtros y validaciones.',
+  },
+]
+
+const highlights = [
+  {
+    label: 'Lugares de trabajo',
+    value: 'Hoteles',
+    text: 'Base preparada para gestionar más de un centro operativo.',
+  },
+  {
+    label: 'Departamentos',
+    value: 'Áreas',
+    text: 'Recepción, pisos, cocina, mantenimiento y cualquier estructura futura.',
+  },
+  {
+    label: 'Turnos',
+    value: 'Plantillas',
+    text: 'Separación clara entre turno maestro y turno planificado diario.',
+  },
+  {
+    label: 'Empleados',
+    value: 'Ficha completa',
+    text: 'Con categoría laboral, antigüedad, parcialidad y asignaciones.',
+  },
+]
+
+export default function HomePage() {
+  return (
+    <main>
+      <section className="app-section">
+        <div className="app-container">
+          <div className="hero-panel">
+            <div className="hero-panel-content">
+              <span className="page-eyebrow">TurnoHotel</span>
+
+              <h1 className="hero-panel-title">
+                Gestión de turnos con
+                <br />
+                identidad hotelera
+              </h1>
+
+              <p className="hero-panel-text">
+                Construimos una aplicación interna clara, elegante y operativa
+                para organizar lugares de trabajo, departamentos, empleados y
+                planificación diaria con una estética inspirada en Puerto
+                Antilla.
+              </p>
+
+              <div
+                className="page-actions"
+                style={{ marginTop: '24px' }}
+              >
+                <Link href="/maestros" className="button button-primary">
+                  Entrar en maestros
+                </Link>
+
+                <Link href="/planificacion" className="button button-secondary">
+                  Ir a planificación
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="app-section">
+        <div className="app-container">
+          <header className="page-header">
+            <div className="page-header-content">
+              <span className="page-eyebrow">Áreas principales</span>
+              <h2 className="page-title">La estructura base del proyecto</h2>
+              <p className="page-description">
+                Separamos configuración, personas y operación para construir una
+                base limpia desde el inicio.
+              </p>
+            </div>
+          </header>
+
+          <div className="nav-grid">
+            {mainAreas.map((area) => (
+              <Link key={area.href} href={area.href} className="nav-card">
+                <h3 className="nav-card-title">{area.title}</h3>
+                <p className="nav-card-text">{area.description}</p>
+                <span className="nav-card-link">Acceder</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="app-section">
+        <div className="app-container">
+          <header className="page-header">
+            <div className="page-header-content">
+              <span className="page-eyebrow">Punto de partida</span>
+              <h2 className="page-title">Qué dejamos preparado desde el MVP</h2>
+              <p className="page-description">
+                El modelo ya nace pensado para crecer sin rehacer el núcleo
+                cuando lleguen informes, mejoras de planificación o nuevos
+                centros.
+              </p>
+            </div>
+          </header>
+
+          <div className="kpi-grid">
+            {highlights.map((item) => (
+              <article key={item.label} className="kpi-card">
+                <p className="kpi-label">{item.label}</p>
+                <p className="kpi-value">{item.value}</p>
+                <p className="kpi-text">{item.text}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="app-section">
+        <div className="app-container">
+          <div className="grid grid-cols-2">
+            <article className="card">
+              <div className="card-header">
+                <h2 className="card-title">Criterio funcional</h2>
+                <p className="card-description">
+                  Priorizamos reglas de negocio claras antes de llenar la app de
+                  pantallas.
+                </p>
+              </div>
+
+              <div className="card-content">
+                <div className="grid">
+                  <div>
+                    <span className="status-chip status-published">
+                      maestros
+                    </span>
+                    <p style={{ margin: '12px 0 0' }}>
+                      Lugares de trabajo, departamentos, categorías laborales y
+                      turnos maestros como base de configuración.
+                    </p>
+                  </div>
+
+                  <div>
+                    <span className="status-chip status-published">
+                      empleados
+                    </span>
+                    <p style={{ margin: '12px 0 0' }}>
+                      Cada trabajador tendrá su ficha con datos laborales y las
+                      asignaciones que condicionan qué turnos puede realizar.
+                    </p>
+                  </div>
+
+                  <div>
+                    <span className="status-chip status-published">
+                      planificación
+                    </span>
+                    <p style={{ margin: '12px 0 0' }}>
+                      La operación diaria se construye sobre turnos reales con
+                      filtros, validaciones y vistas por fecha.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article className="card">
+              <div className="card-header">
+                <h2 className="card-title">Próximos pasos</h2>
+                <p className="card-description">
+                  Seguimos archivo a archivo, sin tocar nada innecesario.
+                </p>
+              </div>
+
+              <div className="card-content">
+                <div className="data-table-wrapper">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Paso</th>
+                        <th>Objetivo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>1</td>
+                        <td>Crear la entrada de Maestros</td>
+                      </tr>
+                      <tr>
+                        <td>2</td>
+                        <td>Montar las páginas base de cada bloque</td>
+                      </tr>
+                      <tr>
+                        <td>3</td>
+                        <td>Conectar Prisma con los primeros endpoints</td>
+                      </tr>
+                      <tr>
+                        <td>4</td>
+                        <td>Empezar por Lugares de trabajo</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+    </main>
+  )
+}
