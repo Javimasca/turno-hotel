@@ -1,5 +1,7 @@
 import Link from 'next/link'
 
+import { prisma } from '@/lib/prisma'
+
 type Workplace = {
   id: string
   code: string
@@ -9,20 +11,16 @@ type Workplace = {
 }
 
 async function getWorkplaces(): Promise<Workplace[]> {
-  const res = await fetch(
-  'http://localhost:3000/api/maestros/lugares-trabajo',
-  {
-    cache: 'no-store',
-  },
-)
-
-  if (!res.ok) {
-    throw new Error('Error cargando lugares de trabajo')
-  }
-
-  const json = await res.json()
-
-  return json.data
+  return prisma.workplace.findMany({
+    orderBy: [{ name: 'asc' }],
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      description: true,
+      isActive: true,
+    },
+  })
 }
 
 export default async function WorkplacesPage() {
