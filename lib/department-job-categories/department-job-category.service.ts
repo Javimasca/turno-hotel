@@ -9,7 +9,7 @@ import {
 } from '@/lib/department-job-categories/department-job-category.repository'
 import { getJobCategoryById } from '@/lib/job-categories/job-category.repository'
 import { getQuadrantGroupById } from '@/lib/quadrant-groups/quadrant-group.repository'
-import { getWorkAreaById } from '@/lib/work-areas/work-area.repository'
+import { workAreaRepository } from '@/lib/work-areas/work-area.repository'
 
 type ListDepartmentJobCategoriesParams = {
   departmentId?: string
@@ -126,7 +126,7 @@ async function validateContext(params: {
   const [department, jobCategory, workArea, quadrantGroup] = await Promise.all([
     getDepartmentById(params.departmentId),
     getJobCategoryById(params.jobCategoryId),
-    getWorkAreaById(params.workAreaId),
+    workAreaRepository.findById(params.workAreaId),
     getQuadrantGroupById(params.quadrantGroupId),
   ])
 
