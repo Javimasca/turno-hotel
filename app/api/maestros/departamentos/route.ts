@@ -18,6 +18,44 @@ function parseBoolean(value: string | null) {
   return undefined;
 }
 
+function buildNewDepartmentUrl(
+  request: NextRequest,
+  values: {
+    error: string;
+    workplaceId?: string;
+    code?: string;
+    name?: string;
+    description?: string;
+    isActive?: boolean;
+  },
+) {
+  const url = new URL("/maestros/departamentos/nuevo", request.url);
+
+  url.searchParams.set("error", values.error);
+
+  if (values.workplaceId) {
+    url.searchParams.set("workplaceId", values.workplaceId);
+  }
+
+  if (values.code) {
+    url.searchParams.set("code", values.code);
+  }
+
+  if (values.name) {
+    url.searchParams.set("name", values.name);
+  }
+
+  if (values.description) {
+    url.searchParams.set("description", values.description);
+  }
+
+  if (typeof values.isActive === "boolean") {
+    url.searchParams.set("isActive", values.isActive ? "true" : "false");
+  }
+
+  return url;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -33,24 +71,47 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(departments);
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Error al obtener los departamentos.";
+      error instanceof Error
+        ? error.message
+        : "Error al obtener los departamentos.";
 
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
+  let workplaceId = "";
+  let code = "";
+  let name = "";
+  let description: string | null = null;
+  let isActive = false;
+
   try {
-    const formData = await request.formData();
+    const contentType = request.headers.get("content-type") ?? "";
 
-    const workplaceId = String(formData.get("workplaceId") ?? "").trim();
-    const code = String(formData.get("code") ?? "").trim();
-    const name = String(formData.get("name") ?? "").trim();
+    if (contentType.includes("application/json")) {
+      const body = await request.json();
 
-    const rawDescription = String(formData.get("description") ?? "").trim();
-    const description = rawDescription.length > 0 ? rawDescription : null;
+      workplaceId = String(body.workplaceId ?? "").trim();
+      code = String(body.code ?? "").trim();
+      name = String(body.name ?? "").trim();
 
-    const isActive = formData.get("isActive") === "true";
+      const rawDescription = String(body.description ?? "").trim();
+      description = rawDescription.length > 0 ? rawDescription : null;
+
+      isActive = body.isActive === true;
+    } else {
+      const formData = await request.formData();
+
+      workplaceId = String(formData.get("workplaceId") ?? "").trim();
+      code = String(formData.get("code") ?? "").trim();
+      name = String(formData.get("name") ?? "").trim();
+
+      const rawDescription = String(formData.get("description") ?? "").trim();
+      description = rawDescription.length > 0 ? rawDescription : null;
+
+      isActive = formData.get("isActive") === "true";
+    }
 
     await departmentService.create({
       workplaceId,
@@ -67,6 +128,26 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Error al crear el departamento.";
+
+    const contentType = request.headers.get("content-type") ?? "";
+    const isHtmlFormRequest =
+      contentType.includes("application/x-www-form-urlencoded") ||
+      contentType.includes("multipart/form-data") ||
+      contentType === "";
+
+    if (isHtmlFormRequest) {
+      return NextResponse.redirect(
+        buildNewDepartmentUrl(request, {
+          error: message,
+          workplaceId,
+          code,
+          name,
+          description: description ?? undefined,
+          isActive,
+        }),
+        { status: 303 },
+      );
+    }
 
     return NextResponse.json({ error: message }, { status: 400 });
   }

@@ -2,6 +2,8 @@ import Link from "next/link";
 
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 export default async function NewDepartmentPage() {
   const workplaces = await prisma.workplace.findMany({
     orderBy: [{ name: "asc" }],
@@ -36,7 +38,10 @@ export default async function NewDepartmentPage() {
               Primero necesitamos crear al menos un lugar de trabajo antes de
               poder definir departamentos.
             </p>
-            <Link href="/maestros/lugares-trabajo" className="button button-primary">
+            <Link
+              href="/maestros/lugares-trabajo"
+              className="button button-primary"
+            >
               Ir a lugares de trabajo
             </Link>
           </div>
