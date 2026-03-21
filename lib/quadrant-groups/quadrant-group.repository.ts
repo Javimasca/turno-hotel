@@ -1,220 +1,184 @@
-import {
-  createQuadrantGroup,
-  findQuadrantGroupByCodeInWorkArea,
-  findQuadrantGroupById,
-  findQuadrantGroupByNameInWorkArea,
-  findQuadrantGroups,
-  updateQuadrantGroup,
-  deleteQuadrantGroup,
-  type CreateQuadrantGroupInput,
-  type QuadrantGroupListFilters,
-  type UpdateQuadrantGroupInput,
-} from "@/lib/quadrant-groups/quadrant-group.repository";
+import { Prisma, QuadrantGroup } from "@prisma/client";
+
 import { prisma } from "@/lib/prisma";
 
-type ListQuadrantGroupsInput = QuadrantGroupListFilters;
+export type QuadrantGroupListFilters = {
+  workAreaId?: string;
+  departmentId?: string;
+  isActive?: boolean;
+};
 
-type CreateQuadrantGroupServiceInput = CreateQuadrantGroupInput;
+export type CreateQuadrantGroupInput = {
+  workAreaId: string;
+  code: string;
+  name: string;
+  description?: string | null;
+  displayOrder?: number;
+  isActive?: boolean;
+};
 
-type UpdateQuadrantGroupServiceInput = UpdateQuadrantGroupInput;
+export type UpdateQuadrantGroupInput = {
+  code?: string;
+  name?: string;
+  description?: string | null;
+  displayOrder?: number;
+  isActive?: boolean;
+};
 
-export class QuadrantGroupNotFoundError extends Error {
-  constructor(message = "El grupo de cuadrante no existe.") {
-    super(message);
-    this.name = "QuadrantGroupNotFoundError";
-  }
-}
+const quadrantGroupBaseSelect = {
+  id: true,
+  workAreaId: true,
+  code: true,
+  name: true,
+  description: true,
+  displayOrder: true,
+  isActive: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.QuadrantGroupSelect;
 
-export class QuadrantGroupCodeAlreadyExistsError extends Error {
-  constructor(
-    message = "Ya existe un grupo de cuadrante con ese código en la zona de trabajo.",
-  ) {
-    super(message);
-    this.name = "QuadrantGroupCodeAlreadyExistsError";
-  }
-}
-
-export class QuadrantGroupNameAlreadyExistsError extends Error {
-  constructor(
-    message = "Ya existe un grupo de cuadrante con ese nombre en la zona de trabajo.",
-  ) {
-    super(message);
-    this.name = "QuadrantGroupNameAlreadyExistsError";
-  }
-}
-
-function normalizeCode(value: string) {
-  return value.trim().toUpperCase();
-}
-
-function normalizeName(value: string) {
-  return value.trim();
-}
-
-function normalizeDescription(value?: string | null) {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  const trimmed = value?.trim() ?? "";
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function normalizeDisplayOrder(value?: number) {
-  return value ?? 0;
-}
-
-export const quadrantGroupService = {
-  async list(input: ListQuadrantGroupsInput = {}) {
-    return findQuadrantGroups(input);
-  },
-
-  async getById(id: string) {
-    const quadrantGroup = await findQuadrantGroupById(id);
-
-    if (!quadrantGroup) {
-      throw new QuadrantGroupNotFoundError();
-    }
-
-    return quadrantGroup;
-  },
-
-  async create(input: CreateQuadrantGroupServiceInput) {
-    const workAreaId = input.workAreaId?.trim();
-    const code = normalizeCode(input.code);
-    const name = normalizeName(input.name);
-    const description = normalizeDescription(input.description);
-    const displayOrder = normalizeDisplayOrder(input.displayOrder);
-    const isActive = input.isActive ?? true;
-
-    if (!workAreaId) {
-      throw new Error("La zona de trabajo es obligatoria.");
-    }
-
-    if (!code) {
-      throw new Error("El código es obligatorio.");
-    }
-
-    if (!name) {
-      throw new Error("El nombre es obligatorio.");
-    }
-
-    if (!Number.isInteger(displayOrder) || displayOrder < 0) {
-      throw new Error("El orden debe ser un número entero mayor o igual que 0.");
-    }
-
-    const workArea = await prisma.workArea.findUnique({
-      where: { id: workAreaId },
-      select: {
-        id: true,
-        isActive: true,
+const quadrantGroupWithContextSelect = {
+  ...quadrantGroupBaseSelect,
+  workArea: {
+    select: {
+      id: true,
+      departmentId: true,
+      code: true,
+      name: true,
+      isActive: true,
+      department: {
+        select: {
+          id: true,
+          workplaceId: true,
+          code: true,
+          name: true,
+          isActive: true,
+          workplace: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              isActive: true,
+            },
+          },
+        },
       },
-    });
-
-    if (!workArea) {
-      throw new Error("La zona de trabajo no existe.");
-    }
-
-    const existingByCode = await findQuadrantGroupByCodeInWorkArea(
-      workAreaId,
-      code,
-    );
-
-    if (existingByCode) {
-      throw new QuadrantGroupCodeAlreadyExistsError();
-    }
-
-    const existingByName = await findQuadrantGroupByNameInWorkArea(
-      workAreaId,
-      name,
-    );
-
-    if (existingByName) {
-      throw new QuadrantGroupNameAlreadyExistsError();
-    }
-
-    return createQuadrantGroup({
-      workAreaId,
-      code,
-      name,
-      description,
-      displayOrder,
-      isActive,
-    });
+    },
   },
+} satisfies Prisma.QuadrantGroupSelect;
 
-  async update(id: string, input: UpdateQuadrantGroupServiceInput) {
-    const current = await findQuadrantGroupById(id);
-
-    if (!current) {
-      throw new QuadrantGroupNotFoundError();
-    }
-
-    const nextCode =
-      input.code !== undefined ? normalizeCode(input.code) : undefined;
-    const nextName =
-      input.name !== undefined ? normalizeName(input.name) : undefined;
-    const nextDescription = normalizeDescription(input.description);
-    const nextDisplayOrder =
-      input.displayOrder !== undefined
-        ? normalizeDisplayOrder(input.displayOrder)
-        : undefined;
-
-    if (nextCode !== undefined && !nextCode) {
-      throw new Error("El código es obligatorio.");
-    }
-
-    if (nextName !== undefined && !nextName) {
-      throw new Error("El nombre es obligatorio.");
-    }
-
-    if (
-      nextDisplayOrder !== undefined &&
-      (!Number.isInteger(nextDisplayOrder) || nextDisplayOrder < 0)
-    ) {
-      throw new Error("El orden debe ser un número entero mayor o igual que 0.");
-    }
-
-    if (nextCode !== undefined && nextCode !== current.code) {
-      const existingByCode = await findQuadrantGroupByCodeInWorkArea(
-        current.workAreaId,
-        nextCode,
-      );
-
-      if (existingByCode && existingByCode.id !== id) {
-        throw new QuadrantGroupCodeAlreadyExistsError();
-      }
-    }
-
-    if (nextName !== undefined && nextName !== current.name) {
-      const existingByName = await findQuadrantGroupByNameInWorkArea(
-        current.workAreaId,
-        nextName,
-      );
-
-      if (existingByName && existingByName.id !== id) {
-        throw new QuadrantGroupNameAlreadyExistsError();
-      }
-    }
-
-    return updateQuadrantGroup(id, {
-      ...(nextCode !== undefined ? { code: nextCode } : {}),
-      ...(nextName !== undefined ? { name: nextName } : {}),
-      ...(input.description !== undefined ? { description: nextDescription } : {}),
-      ...(nextDisplayOrder !== undefined
-        ? { displayOrder: nextDisplayOrder }
+export async function findQuadrantGroups(
+  filters: QuadrantGroupListFilters = {},
+) {
+  return prisma.quadrantGroup.findMany({
+    where: {
+      ...(filters.workAreaId ? { workAreaId: filters.workAreaId } : {}),
+      ...(filters.departmentId
+        ? {
+            workArea: {
+              departmentId: filters.departmentId,
+            },
+          }
         : {}),
-      ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
-    });
-  },
+      ...(typeof filters.isActive === "boolean" ? { isActive: filters.isActive } : {}),
+    },
+    select: quadrantGroupWithContextSelect,
+    orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
+  });
+}
 
-  async delete(id: string) {
-    const current = await findQuadrantGroupById(id);
+export async function findQuadrantGroupById(id: string) {
+  return prisma.quadrantGroup.findUnique({
+    where: { id },
+    select: quadrantGroupWithContextSelect,
+  });
+}
 
-    if (!current) {
-      throw new QuadrantGroupNotFoundError();
-    }
+export async function findQuadrantGroupsByWorkArea(workAreaId: string) {
+  return prisma.quadrantGroup.findMany({
+    where: { workAreaId },
+    select: quadrantGroupWithContextSelect,
+    orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
+  });
+}
 
-    return deleteQuadrantGroup(id);
-  },
+export async function findQuadrantGroupByCodeInWorkArea(
+  workAreaId: string,
+  code: string,
+) {
+  return prisma.quadrantGroup.findFirst({
+    where: {
+      workAreaId,
+      code,
+    },
+    select: quadrantGroupBaseSelect,
+  });
+}
+
+export async function findQuadrantGroupByNameInWorkArea(
+  workAreaId: string,
+  name: string,
+) {
+  return prisma.quadrantGroup.findFirst({
+    where: {
+      workAreaId,
+      name,
+    },
+    select: quadrantGroupBaseSelect,
+  });
+}
+
+export async function createQuadrantGroup(data: CreateQuadrantGroupInput) {
+  return prisma.quadrantGroup.create({
+    data: {
+      workAreaId: data.workAreaId,
+      code: data.code,
+      name: data.name,
+      description: data.description ?? null,
+      displayOrder: data.displayOrder ?? 0,
+      isActive: data.isActive ?? true,
+    },
+    select: quadrantGroupWithContextSelect,
+  });
+}
+
+export async function updateQuadrantGroup(
+  id: string,
+  data: UpdateQuadrantGroupInput,
+) {
+  return prisma.quadrantGroup.update({
+    where: { id },
+    data: {
+      ...(data.code !== undefined ? { code: data.code } : {}),
+      ...(data.name !== undefined ? { name: data.name } : {}),
+      ...(data.description !== undefined ? { description: data.description } : {}),
+      ...(data.displayOrder !== undefined ? { displayOrder: data.displayOrder } : {}),
+      ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
+    },
+    select: quadrantGroupWithContextSelect,
+  });
+}
+
+export async function deleteQuadrantGroup(id: string): Promise<QuadrantGroup> {
+  return prisma.quadrantGroup.delete({
+    where: { id },
+  });
+}
+
+export async function countQuadrantGroupsByWorkArea(workAreaId: string) {
+  return prisma.quadrantGroup.count({
+    where: { workAreaId },
+  });
+}
+
+export const quadrantGroupRepository = {
+  findMany: findQuadrantGroups,
+  findById: findQuadrantGroupById,
+  findByWorkArea: findQuadrantGroupsByWorkArea,
+  findByCodeInWorkArea: findQuadrantGroupByCodeInWorkArea,
+  findByNameInWorkArea: findQuadrantGroupByNameInWorkArea,
+  create: createQuadrantGroup,
+  update: updateQuadrantGroup,
+  delete: deleteQuadrantGroup,
+  countByWorkArea: countQuadrantGroupsByWorkArea,
 };
