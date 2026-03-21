@@ -7,6 +7,17 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum ContractType {
+  INDEFINIDO
+  TEMPORAL
+  FIJO_DISCONTINUO
+  FORMACION
+  PRACTICAS
+  INTERINIDAD
+  EVENTUAL
+  OTRO
+}
+
 model Workplace {
   id          String   @id @default(cuid())
   code        String   @unique
@@ -33,7 +44,7 @@ model Department {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  workplace                Workplace               @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+  workplace                Workplace                 @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
   workAreas                WorkArea[]
   departmentJobCategories  DepartmentJobCategory[]
   departmentShiftTemplates DepartmentShiftTemplate[]
@@ -48,15 +59,15 @@ model Department {
 }
 
 model WorkArea {
-  id          String   @id @default(cuid())
+  id           String   @id @default(cuid())
   departmentId String
-  code        String
-  name        String
-  description String?
-  displayOrder Int     @default(0)
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  code         String
+  name         String
+  description  String?
+  displayOrder Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   department              Department              @relation(fields: [departmentId], references: [id], onDelete: Cascade)
   quadrantGroups          QuadrantGroup[]
@@ -72,7 +83,7 @@ model WorkArea {
 
 model QuadrantGroup {
   id           String   @id @default(cuid())
-  workAreaId    String
+  workAreaId   String
   code         String
   name         String
   description  String?
@@ -104,7 +115,7 @@ model JobCategory {
   updatedAt    DateTime @updatedAt
 
   departmentJobCategories DepartmentJobCategory[]
-  employees               Employee[]
+  employeeContracts       EmployeeContract[]
 
   @@index([displayOrder])
   @@index([name])
@@ -136,18 +147,18 @@ model DepartmentJobCategory {
 }
 
 model ShiftTemplate {
-  id               String   @id @default(cuid())
-  code             String   @unique
-  name             String   @unique
-  shortName        String?
-  description      String?
-  startMinute      Int
-  endMinute        Int
-  crossesMidnight  Boolean  @default(false)
-  backgroundColor  String?
-  isActive         Boolean  @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id              String   @id @default(cuid())
+  code            String   @unique
+  name            String   @unique
+  shortName       String?
+  description     String?
+  startMinute     Int
+  endMinute       Int
+  crossesMidnight Boolean  @default(false)
+  backgroundColor String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   departmentShiftTemplates DepartmentShiftTemplate[]
   shifts                   Shift[]
@@ -174,27 +185,52 @@ model DepartmentShiftTemplate {
 }
 
 model Employee {
-  id             String    @id @default(cuid())
-  code           String    @unique
-  firstName      String
-  lastName       String
-  email          String?   @unique
-  phone          String?
-  jobCategoryId  String
-  seniorityDate  DateTime?
-  weeklyHours    Float?
-  isActive       Boolean   @default(true)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id                      String   @id @default(cuid())
+  code                    String   @unique
+  firstName               String
+  lastName                String
+  email                   String?  @unique
+  phone                   String?
+  directManagerEmployeeId String?
+  isActive                Boolean  @default(true)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 
-  jobCategory        JobCategory         @relation(fields: [jobCategoryId], references: [id], onDelete: Restrict)
-  employeeWorkplaces EmployeeWorkplace[]
+  directManager       Employee?            @relation("EmployeeManager", fields: [directManagerEmployeeId], references: [id], onDelete: SetNull)
+  subordinates        Employee[]           @relation("EmployeeManager")
+  employeeContracts   EmployeeContract[]
+  employeeWorkplaces  EmployeeWorkplace[]
   employeeDepartments EmployeeDepartment[]
-  shifts             Shift[]
+  shifts              Shift[]
 
   @@index([lastName, firstName])
-  @@index([jobCategoryId])
+  @@index([directManagerEmployeeId])
   @@map("employees")
+}
+
+model EmployeeContract {
+  id             String       @id @default(cuid())
+  employeeId     String
+  jobCategoryId  String
+  contractType   ContractType
+  startDate      DateTime
+  endDate        DateTime?
+  seniorityDate  DateTime?
+  weeklyHours    Float?
+  dailyHours     Float?
+  employmentRate Float?
+  notes          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  employee    Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  jobCategory JobCategory @relation(fields: [jobCategoryId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, startDate])
+  @@index([employeeId, endDate])
+  @@index([jobCategoryId])
+  @@index([contractType])
+  @@map("employee_contracts")
 }
 
 model EmployeeWorkplace {
@@ -214,10 +250,10 @@ model EmployeeWorkplace {
 
 model EmployeeDepartment {
   id           String   @id @default(cuid())
-  employeeId    String
-  departmentId  String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  employeeId   String
+  departmentId String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   employee   Employee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)

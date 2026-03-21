@@ -42,7 +42,17 @@ export default function MaestrosPage() {
         <Link href="/maestros/asignaciones-categorias" className="nav-card">
           <h2 className="nav-card-title">Asignaciones de categorías</h2>
           <p className="nav-card-text">
-            Conectamos categorías con departamentos, zonas y grupos de cuadrante.
+            Conectamos categorías con departamentos, zonas y grupos de
+            cuadrante.
+          </p>
+          <span className="nav-card-link">Gestionar →</span>
+        </Link>
+
+        <Link href="/maestros/empleados" className="nav-card">
+          <h2 className="nav-card-title">Empleados</h2>
+          <p className="nav-card-text">
+            Gestionamos la ficha base del trabajador, su responsable y su
+            contexto organizativo.
           </p>
           <span className="nav-card-link">Gestionar →</span>
         </Link>
