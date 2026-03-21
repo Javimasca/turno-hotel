@@ -1,308 +1,220 @@
-import { getDepartmentById } from '@/lib/departments/department.repository'
 import {
-  createDepartmentJobCategory,
-  deleteDepartmentJobCategory,
-  getDepartmentJobCategoryById,
-  getDepartmentJobCategoryByUniqueContext,
-  listDepartmentJobCategories,
-  updateDepartmentJobCategory,
-} from '@/lib/department-job-categories/department-job-category.repository'
-import { getJobCategoryById } from '@/lib/job-categories/job-category.repository'
-import { quadrantGroupRepository } from '@/lib/quadrant-groups/quadrant-group.repository'
-import { workAreaRepository } from '@/lib/work-areas/work-area.repository'
+  createQuadrantGroup,
+  findQuadrantGroupByCodeInWorkArea,
+  findQuadrantGroupById,
+  findQuadrantGroupByNameInWorkArea,
+  findQuadrantGroups,
+  updateQuadrantGroup,
+  deleteQuadrantGroup,
+  type CreateQuadrantGroupInput,
+  type QuadrantGroupListFilters,
+  type UpdateQuadrantGroupInput,
+} from "@/lib/quadrant-groups/quadrant-group.repository";
+import { prisma } from "@/lib/prisma";
 
-type ListDepartmentJobCategoriesParams = {
-  departmentId?: string
-  workAreaId?: string
-  quadrantGroupId?: string
-  jobCategoryId?: string
-  isActive?: boolean
-}
+type ListQuadrantGroupsInput = QuadrantGroupListFilters;
 
-type CreateDepartmentJobCategoryInput = {
-  departmentId: string
-  jobCategoryId: string
-  workAreaId: string
-  quadrantGroupId: string
-  displayOrder?: number
-  isActive?: boolean
-}
+type CreateQuadrantGroupServiceInput = CreateQuadrantGroupInput;
 
-type UpdateDepartmentJobCategoryInput = {
-  departmentId?: string
-  jobCategoryId?: string
-  workAreaId?: string
-  quadrantGroupId?: string
-  displayOrder?: number
-  isActive?: boolean
-}
+type UpdateQuadrantGroupServiceInput = UpdateQuadrantGroupInput;
 
-export class DepartmentJobCategoryNotFoundError extends Error {
-  constructor() {
-    super('La asignación de categoría profesional no existe.')
-    this.name = 'DepartmentJobCategoryNotFoundError'
+export class QuadrantGroupNotFoundError extends Error {
+  constructor(message = "El grupo de cuadrante no existe.") {
+    super(message);
+    this.name = "QuadrantGroupNotFoundError";
   }
 }
 
-export class DepartmentJobCategoryAlreadyExistsError extends Error {
-  constructor() {
-    super(
-      'Ya existe una asignación para ese departamento, zona, grupo y categoría profesional.',
-    )
-    this.name = 'DepartmentJobCategoryAlreadyExistsError'
+export class QuadrantGroupCodeAlreadyExistsError extends Error {
+  constructor(
+    message = "Ya existe un grupo de cuadrante con ese código en la zona de trabajo.",
+  ) {
+    super(message);
+    this.name = "QuadrantGroupCodeAlreadyExistsError";
   }
 }
 
-export class DepartmentNotFoundForAssignmentError extends Error {
-  constructor() {
-    super('El departamento indicado no existe.')
-    this.name = 'DepartmentNotFoundForAssignmentError'
+export class QuadrantGroupNameAlreadyExistsError extends Error {
+  constructor(
+    message = "Ya existe un grupo de cuadrante con ese nombre en la zona de trabajo.",
+  ) {
+    super(message);
+    this.name = "QuadrantGroupNameAlreadyExistsError";
   }
 }
 
-export class JobCategoryNotFoundForAssignmentError extends Error {
-  constructor() {
-    super('La categoría profesional indicada no existe.')
-    this.name = 'JobCategoryNotFoundForAssignmentError'
-  }
+function normalizeCode(value: string) {
+  return value.trim().toUpperCase();
 }
 
-export class WorkAreaNotFoundForAssignmentError extends Error {
-  constructor() {
-    super('La zona de trabajo indicada no existe.')
-    this.name = 'WorkAreaNotFoundForAssignmentError'
-  }
+function normalizeName(value: string) {
+  return value.trim();
 }
 
-export class QuadrantGroupNotFoundForAssignmentError extends Error {
-  constructor() {
-    super('El grupo de cuadrante indicado no existe.')
-    this.name = 'QuadrantGroupNotFoundForAssignmentError'
-  }
-}
-
-export class WorkAreaDoesNotBelongToDepartmentError extends Error {
-  constructor() {
-    super('La zona de trabajo indicada no pertenece al departamento seleccionado.')
-    this.name = 'WorkAreaDoesNotBelongToDepartmentError'
-  }
-}
-
-export class QuadrantGroupDoesNotBelongToWorkAreaError extends Error {
-  constructor() {
-    super('El grupo de cuadrante indicado no pertenece a la zona de trabajo seleccionada.')
-    this.name = 'QuadrantGroupDoesNotBelongToWorkAreaError'
-  }
-}
-
-function normalizeRequiredString(value: string, fieldName: string) {
-  const normalized = value.trim()
-
-  if (!normalized) {
-    throw new Error(`El campo ${fieldName} es obligatorio.`)
+function normalizeDescription(value?: string | null) {
+  if (value === undefined) {
+    return undefined;
   }
 
-  return normalized
+  const trimmed = value?.trim() ?? "";
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 function normalizeDisplayOrder(value?: number) {
-  if (value === undefined) {
-    return 0
-  }
-
-  if (!Number.isInteger(value) || value < 0) {
-    throw new Error('El orden debe ser un número entero igual o mayor que 0.')
-  }
-
-  return value
+  return value ?? 0;
 }
 
-async function validateContext(params: {
-  departmentId: string
-  jobCategoryId: string
-  workAreaId: string
-  quadrantGroupId: string
-}) {
-  const [department, jobCategory, workArea, quadrantGroup] = await Promise.all([
-    getDepartmentById(params.departmentId),
-    getJobCategoryById(params.jobCategoryId),
-    workAreaRepository.findById(params.workAreaId),
-    quadrantGroupRepository.findById(params.quadrantGroupId),
-  ])
-
-  if (!department) {
-    throw new DepartmentNotFoundForAssignmentError()
-  }
-
-  if (!jobCategory) {
-    throw new JobCategoryNotFoundForAssignmentError()
-  }
-
-  if (!workArea) {
-    throw new WorkAreaNotFoundForAssignmentError()
-  }
-
-  if (!quadrantGroup) {
-    throw new QuadrantGroupNotFoundForAssignmentError()
-  }
-
-  if (workArea.departmentId !== department.id) {
-    throw new WorkAreaDoesNotBelongToDepartmentError()
-  }
-
-  if (quadrantGroup.workAreaId !== workArea.id) {
-    throw new QuadrantGroupDoesNotBelongToWorkAreaError()
-  }
-
-  return {
-    department,
-    jobCategory,
-    workArea,
-    quadrantGroup,
-  }
-}
-
-async function ensureUniqueContext(
-  params: {
-    departmentId: string
-    jobCategoryId: string
-    workAreaId: string
-    quadrantGroupId: string
+export const quadrantGroupService = {
+  async list(input: ListQuadrantGroupsInput = {}) {
+    return findQuadrantGroups(input);
   },
-  currentId?: string,
-) {
-  const existing = await getDepartmentJobCategoryByUniqueContext(params)
 
-  if (existing && existing.id !== currentId) {
-    throw new DepartmentJobCategoryAlreadyExistsError()
-  }
-}
+  async getById(id: string) {
+    const quadrantGroup = await findQuadrantGroupById(id);
 
-export async function listDepartmentJobCategoryRecords(
-  params: ListDepartmentJobCategoriesParams = {},
-) {
-  return listDepartmentJobCategories(params)
-}
+    if (!quadrantGroup) {
+      throw new QuadrantGroupNotFoundError();
+    }
 
-export async function getDepartmentJobCategoryRecordById(id: string) {
-  const record = await getDepartmentJobCategoryById(id)
+    return quadrantGroup;
+  },
 
-  if (!record) {
-    throw new DepartmentJobCategoryNotFoundError()
-  }
+  async create(input: CreateQuadrantGroupServiceInput) {
+    const workAreaId = input.workAreaId?.trim();
+    const code = normalizeCode(input.code);
+    const name = normalizeName(input.name);
+    const description = normalizeDescription(input.description);
+    const displayOrder = normalizeDisplayOrder(input.displayOrder);
+    const isActive = input.isActive ?? true;
 
-  return record
-}
+    if (!workAreaId) {
+      throw new Error("La zona de trabajo es obligatoria.");
+    }
 
-export async function createDepartmentJobCategoryRecord(
-  input: CreateDepartmentJobCategoryInput,
-) {
-  const departmentId = normalizeRequiredString(input.departmentId, 'departamento')
-  const jobCategoryId = normalizeRequiredString(
-    input.jobCategoryId,
-    'categoría profesional',
-  )
-  const workAreaId = normalizeRequiredString(input.workAreaId, 'zona de trabajo')
-  const quadrantGroupId = normalizeRequiredString(
-    input.quadrantGroupId,
-    'grupo de cuadrante',
-  )
-  const displayOrder = normalizeDisplayOrder(input.displayOrder)
+    if (!code) {
+      throw new Error("El código es obligatorio.");
+    }
 
-  await validateContext({
-    departmentId,
-    jobCategoryId,
-    workAreaId,
-    quadrantGroupId,
-  })
+    if (!name) {
+      throw new Error("El nombre es obligatorio.");
+    }
 
-  await ensureUniqueContext({
-    departmentId,
-    jobCategoryId,
-    workAreaId,
-    quadrantGroupId,
-  })
+    if (!Number.isInteger(displayOrder) || displayOrder < 0) {
+      throw new Error("El orden debe ser un número entero mayor o igual que 0.");
+    }
 
-  return createDepartmentJobCategory({
-    departmentId,
-    jobCategoryId,
-    workAreaId,
-    quadrantGroupId,
-    displayOrder,
-    isActive: input.isActive ?? true,
-  })
-}
+    const workArea = await prisma.workArea.findUnique({
+      where: { id: workAreaId },
+      select: {
+        id: true,
+        isActive: true,
+      },
+    });
 
-export async function updateDepartmentJobCategoryRecord(
-  id: string,
-  input: UpdateDepartmentJobCategoryInput,
-) {
-  const existing = await getDepartmentJobCategoryById(id)
+    if (!workArea) {
+      throw new Error("La zona de trabajo no existe.");
+    }
 
-  if (!existing) {
-    throw new DepartmentJobCategoryNotFoundError()
-  }
-
-  const departmentId =
-    input.departmentId !== undefined
-      ? normalizeRequiredString(input.departmentId, 'departamento')
-      : existing.departmentId
-
-  const jobCategoryId =
-    input.jobCategoryId !== undefined
-      ? normalizeRequiredString(input.jobCategoryId, 'categoría profesional')
-      : existing.jobCategoryId
-
-  const workAreaId =
-    input.workAreaId !== undefined
-      ? normalizeRequiredString(input.workAreaId, 'zona de trabajo')
-      : existing.workAreaId
-
-  const quadrantGroupId =
-    input.quadrantGroupId !== undefined
-      ? normalizeRequiredString(input.quadrantGroupId, 'grupo de cuadrante')
-      : existing.quadrantGroupId
-
-  const displayOrder =
-    input.displayOrder !== undefined
-      ? normalizeDisplayOrder(input.displayOrder)
-      : undefined
-
-  await validateContext({
-    departmentId,
-    jobCategoryId,
-    workAreaId,
-    quadrantGroupId,
-  })
-
-  await ensureUniqueContext(
-    {
-      departmentId,
-      jobCategoryId,
+    const existingByCode = await findQuadrantGroupByCodeInWorkArea(
       workAreaId,
-      quadrantGroupId,
-    },
-    id,
-  )
+      code,
+    );
 
-  return updateDepartmentJobCategory(id, {
-    ...(input.departmentId !== undefined ? { departmentId } : {}),
-    ...(input.jobCategoryId !== undefined ? { jobCategoryId } : {}),
-    ...(input.workAreaId !== undefined ? { workAreaId } : {}),
-    ...(input.quadrantGroupId !== undefined ? { quadrantGroupId } : {}),
-    ...(displayOrder !== undefined ? { displayOrder } : {}),
-    ...(typeof input.isActive === 'boolean'
-      ? { isActive: input.isActive }
-      : {}),
-  })
-}
+    if (existingByCode) {
+      throw new QuadrantGroupCodeAlreadyExistsError();
+    }
 
-export async function deleteDepartmentJobCategoryRecord(id: string) {
-  const existing = await getDepartmentJobCategoryById(id)
+    const existingByName = await findQuadrantGroupByNameInWorkArea(
+      workAreaId,
+      name,
+    );
 
-  if (!existing) {
-    throw new DepartmentJobCategoryNotFoundError()
-  }
+    if (existingByName) {
+      throw new QuadrantGroupNameAlreadyExistsError();
+    }
 
-  return deleteDepartmentJobCategory(id)
-}
+    return createQuadrantGroup({
+      workAreaId,
+      code,
+      name,
+      description,
+      displayOrder,
+      isActive,
+    });
+  },
+
+  async update(id: string, input: UpdateQuadrantGroupServiceInput) {
+    const current = await findQuadrantGroupById(id);
+
+    if (!current) {
+      throw new QuadrantGroupNotFoundError();
+    }
+
+    const nextCode =
+      input.code !== undefined ? normalizeCode(input.code) : undefined;
+    const nextName =
+      input.name !== undefined ? normalizeName(input.name) : undefined;
+    const nextDescription = normalizeDescription(input.description);
+    const nextDisplayOrder =
+      input.displayOrder !== undefined
+        ? normalizeDisplayOrder(input.displayOrder)
+        : undefined;
+
+    if (nextCode !== undefined && !nextCode) {
+      throw new Error("El código es obligatorio.");
+    }
+
+    if (nextName !== undefined && !nextName) {
+      throw new Error("El nombre es obligatorio.");
+    }
+
+    if (
+      nextDisplayOrder !== undefined &&
+      (!Number.isInteger(nextDisplayOrder) || nextDisplayOrder < 0)
+    ) {
+      throw new Error("El orden debe ser un número entero mayor o igual que 0.");
+    }
+
+    if (nextCode !== undefined && nextCode !== current.code) {
+      const existingByCode = await findQuadrantGroupByCodeInWorkArea(
+        current.workAreaId,
+        nextCode,
+      );
+
+      if (existingByCode && existingByCode.id !== id) {
+        throw new QuadrantGroupCodeAlreadyExistsError();
+      }
+    }
+
+    if (nextName !== undefined && nextName !== current.name) {
+      const existingByName = await findQuadrantGroupByNameInWorkArea(
+        current.workAreaId,
+        nextName,
+      );
+
+      if (existingByName && existingByName.id !== id) {
+        throw new QuadrantGroupNameAlreadyExistsError();
+      }
+    }
+
+    return updateQuadrantGroup(id, {
+      ...(nextCode !== undefined ? { code: nextCode } : {}),
+      ...(nextName !== undefined ? { name: nextName } : {}),
+      ...(input.description !== undefined ? { description: nextDescription } : {}),
+      ...(nextDisplayOrder !== undefined
+        ? { displayOrder: nextDisplayOrder }
+        : {}),
+      ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+    });
+  },
+
+  async delete(id: string) {
+    const current = await findQuadrantGroupById(id);
+
+    if (!current) {
+      throw new QuadrantGroupNotFoundError();
+    }
+
+    return deleteQuadrantGroup(id);
+  },
+};

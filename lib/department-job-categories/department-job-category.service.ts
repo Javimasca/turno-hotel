@@ -1,4 +1,4 @@
-import { getDepartmentById } from '@/lib/departments/department.repository'
+import { departmentRepository } from '@/lib/departments/department.repository'
 import {
   createDepartmentJobCategory,
   deleteDepartmentJobCategory,
@@ -8,7 +8,7 @@ import {
   updateDepartmentJobCategory,
 } from '@/lib/department-job-categories/department-job-category.repository'
 import { getJobCategoryById } from '@/lib/job-categories/job-category.repository'
-import { getQuadrantGroupById } from '@/lib/quadrant-groups/quadrant-group.repository'
+import { quadrantGroupRepository } from '@/lib/quadrant-groups/quadrant-group.repository'
 import { workAreaRepository } from '@/lib/work-areas/work-area.repository'
 
 type ListDepartmentJobCategoriesParams = {
@@ -124,10 +124,10 @@ async function validateContext(params: {
   quadrantGroupId: string
 }) {
   const [department, jobCategory, workArea, quadrantGroup] = await Promise.all([
-    getDepartmentById(params.departmentId),
+    departmentRepository.findById(params.departmentId),
     getJobCategoryById(params.jobCategoryId),
     workAreaRepository.findById(params.workAreaId),
-    getQuadrantGroupById(params.quadrantGroupId),
+    quadrantGroupRepository.findById(params.quadrantGroupId),
   ])
 
   if (!department) {
