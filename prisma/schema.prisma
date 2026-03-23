@@ -191,6 +191,7 @@ model Employee {
   lastName                String
   email                   String?  @unique
   phone                   String?
+  photoUrl                String?
   directManagerEmployeeId String?
   isActive                Boolean  @default(true)
   createdAt               DateTime @default(now())

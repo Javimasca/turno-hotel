@@ -11,7 +11,10 @@ type CreateEmployeeInput = {
   lastName: string;
   email?: string | null;
   phone?: string | null;
+  photoUrl?: string | null;
   directManagerEmployeeId?: string | null;
+  workplaceId?: string | null;
+  departmentId?: string | null;
   isActive?: boolean;
 };
 
@@ -21,7 +24,10 @@ type UpdateEmployeeInput = {
   lastName?: string;
   email?: string | null;
   phone?: string | null;
+  photoUrl?: string | null;
   directManagerEmployeeId?: string | null;
+  workplaceId?: string | null;
+  departmentId?: string | null;
   isActive?: boolean;
 };
 
@@ -207,6 +213,31 @@ export const employeeRepository = {
     });
   },
 
+  findWorkplaceById(id: string) {
+    return prisma.workplace.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        isActive: true,
+      },
+    });
+  },
+
+  findDepartmentById(id: string) {
+    return prisma.department.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        isActive: true,
+        workplaceId: true,
+      },
+    });
+  },
+
   create(data: CreateEmployeeInput) {
     return prisma.employee.create({
       data: {
@@ -215,8 +246,31 @@ export const employeeRepository = {
         lastName: data.lastName,
         email: data.email ?? null,
         phone: data.phone ?? null,
+        photoUrl: data.photoUrl ?? null,
         directManagerEmployeeId: data.directManagerEmployeeId ?? null,
         isActive: data.isActive ?? true,
+        ...(data.workplaceId
+          ? {
+              employeeWorkplaces: {
+                create: [
+                  {
+                    workplaceId: data.workplaceId,
+                  },
+                ],
+              },
+            }
+          : {}),
+        ...(data.departmentId
+          ? {
+              employeeDepartments: {
+                create: [
+                  {
+                    departmentId: data.departmentId,
+                  },
+                ],
+              },
+            }
+          : {}),
       },
       include: {
         directManager: {
@@ -225,6 +279,47 @@ export const employeeRepository = {
             code: true,
             firstName: true,
             lastName: true,
+          },
+        },
+        employeeWorkplaces: {
+          include: {
+            workplace: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                isActive: true,
+              },
+            },
+          },
+          orderBy: {
+            workplace: {
+              name: "asc",
+            },
+          },
+        },
+        employeeDepartments: {
+          include: {
+            department: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                isActive: true,
+                workplace: {
+                  select: {
+                    id: true,
+                    code: true,
+                    name: true,
+                  },
+                },
+              },
+            },
+          },
+          orderBy: {
+            department: {
+              name: "asc",
+            },
           },
         },
       },
@@ -239,14 +334,49 @@ export const employeeRepository = {
         ...(typeof data.firstName === "string"
           ? { firstName: data.firstName }
           : {}),
-        ...(typeof data.lastName === "string" ? { lastName: data.lastName } : {}),
+        ...(typeof data.lastName === "string"
+          ? { lastName: data.lastName }
+          : {}),
         ...(data.email !== undefined ? { email: data.email } : {}),
         ...(data.phone !== undefined ? { phone: data.phone } : {}),
+        ...(data.photoUrl !== undefined ? { photoUrl: data.photoUrl } : {}),
         ...(data.directManagerEmployeeId !== undefined
           ? { directManagerEmployeeId: data.directManagerEmployeeId }
           : {}),
         ...(typeof data.isActive === "boolean"
           ? { isActive: data.isActive }
+          : {}),
+        ...(data.workplaceId !== undefined
+          ? {
+              employeeWorkplaces: {
+                deleteMany: {},
+                ...(data.workplaceId
+                  ? {
+                      create: [
+                        {
+                          workplaceId: data.workplaceId,
+                        },
+                      ],
+                    }
+                  : {}),
+              },
+            }
+          : {}),
+        ...(data.departmentId !== undefined
+          ? {
+              employeeDepartments: {
+                deleteMany: {},
+                ...(data.departmentId
+                  ? {
+                      create: [
+                        {
+                          departmentId: data.departmentId,
+                        },
+                      ],
+                    }
+                  : {}),
+              },
+            }
           : {}),
       },
       include: {
@@ -256,6 +386,47 @@ export const employeeRepository = {
             code: true,
             firstName: true,
             lastName: true,
+          },
+        },
+        employeeWorkplaces: {
+          include: {
+            workplace: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                isActive: true,
+              },
+            },
+          },
+          orderBy: {
+            workplace: {
+              name: "asc",
+            },
+          },
+        },
+        employeeDepartments: {
+          include: {
+            department: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                isActive: true,
+                workplace: {
+                  select: {
+                    id: true,
+                    code: true,
+                    name: true,
+                  },
+                },
+              },
+            },
+          },
+          orderBy: {
+            department: {
+              name: "asc",
+            },
           },
         },
       },

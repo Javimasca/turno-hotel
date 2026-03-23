@@ -159,6 +159,11 @@ export default async function EmployeesPage() {
                       : [];
 
                   const fullName = `${employee.firstName} ${employee.lastName}`;
+                  const initials = `${employee.firstName.trim().charAt(0)}${employee.lastName
+                    .trim()
+                    .charAt(0)}`
+                    .toUpperCase()
+                    .trim();
                   const isOperationallyActive =
                     employee.isActive && Boolean(currentContract);
 
@@ -167,9 +172,51 @@ export default async function EmployeesPage() {
                       <td>{employee.code}</td>
 
                       <td>
-                        <div>
-                          <strong>{fullName}</strong>
-                          {employee.email ? <div>{employee.email}</div> : null}
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "1rem",
+                          }}
+                        >
+                          {employee.photoUrl ? (
+                            <img
+                              src={employee.photoUrl}
+                              alt={`Foto de ${fullName}`}
+                              style={{
+                                width: "72px",
+                                height: "72px",
+                                borderRadius: "9999px",
+                                objectFit: "cover",
+                                border: "1px solid #d1d5db",
+                                flexShrink: 0,
+                              }}
+                            />
+                          ) : (
+                            <div
+                              style={{
+                                width: "72px",
+                                height: "72px",
+                                borderRadius: "9999px",
+                                border: "1px solid #d1d5db",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: "1.125rem",
+                                fontWeight: 700,
+                                backgroundColor: "#f8fafc",
+                                color: "#334155",
+                                flexShrink: 0,
+                              }}
+                            >
+                              {initials || "EM"}
+                            </div>
+                          )}
+
+                          <div>
+                            <strong>{fullName}</strong>
+                            {employee.email ? <div>{employee.email}</div> : null}
+                          </div>
                         </div>
                       </td>
 
@@ -223,10 +270,10 @@ export default async function EmployeesPage() {
                         </span>
                       </td>
 
-                      <td>
+                      <td className="actions-cell">
                         <Link
                           href={`/maestros/empleados/${employee.id}/editar`}
-                          className="table-link"
+                          className="button button-secondary"
                         >
                           Editar
                         </Link>

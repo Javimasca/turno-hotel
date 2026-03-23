@@ -46,9 +46,7 @@ export async function GET(request: Request) {
     isActive,
   })
 
-  return NextResponse.json({
-    data: workplaces,
-  })
+  return NextResponse.json(workplaces)
 }
 
 export async function POST(request: Request) {
@@ -98,12 +96,7 @@ export async function POST(request: Request) {
         typeof body.isActive === 'boolean' ? body.isActive : undefined,
     })
 
-    return NextResponse.json(
-      {
-        data: workplace,
-      },
-      { status: 201 },
-    )
+    return NextResponse.json(workplace, { status: 201 })
   } catch (error) {
     if (error instanceof WorkplaceCodeAlreadyExistsError) {
       return NextResponse.json(

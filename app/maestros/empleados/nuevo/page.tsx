@@ -13,6 +13,8 @@ type NewEmployeePageProps = {
     email?: string;
     phone?: string;
     directManagerEmployeeId?: string;
+    workplaceId?: string;
+    departmentId?: string;
     isActive?: string;
   }>;
 };
@@ -29,20 +31,52 @@ export default async function NewEmployeePage({
   const email = params?.email?.trim() || "";
   const phone = params?.phone?.trim() || "";
   const directManagerEmployeeId = params?.directManagerEmployeeId?.trim() || "";
+  const workplaceId = params?.workplaceId?.trim() || "";
+  const departmentId = params?.departmentId?.trim() || "";
   const isActive = params?.isActive !== "false";
 
-  const managers = await prisma.employee.findMany({
-    where: {
-      isActive: true,
-    },
-    select: {
-      id: true,
-      code: true,
-      firstName: true,
-      lastName: true,
-    },
-    orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
-  });
+  const [managers, workplaces, departments] = await Promise.all([
+    prisma.employee.findMany({
+      where: {
+        isActive: true,
+      },
+      select: {
+        id: true,
+        code: true,
+        firstName: true,
+        lastName: true,
+      },
+      orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+    }),
+    prisma.workplace.findMany({
+      where: {
+        isActive: true,
+      },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+      },
+      orderBy: [{ name: "asc" }],
+    }),
+    prisma.department.findMany({
+      where: {
+        isActive: true,
+      },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        workplace: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+      orderBy: [{ name: "asc" }],
+    }),
+  ]);
 
   return (
     <main className="page-shell">
@@ -54,8 +88,8 @@ export default async function NewEmployeePage({
           <p className="eyebrow">Maestros · Empleados</p>
           <h1>Nuevo empleado</h1>
           <p className="page-description">
-            Creamos la ficha base del trabajador. Después completaremos
-            contratos, centros, departamentos y evolución profesional.
+            Creamos la ficha base del trabajador y su asignación organizativa
+            inicial.
           </p>
         </div>
       </section>
@@ -65,6 +99,7 @@ export default async function NewEmployeePage({
           className="form-grid"
           action="/api/maestros/empleados"
           method="post"
+          encType="multipart/form-data"
         >
           {error ? (
             <div className="form-field form-field-full">
@@ -133,6 +168,16 @@ export default async function NewEmployeePage({
           </div>
 
           <div className="form-field">
+            <label htmlFor="photo">Foto</label>
+            <input
+              id="photo"
+              name="photo"
+              type="file"
+              accept="image/*"
+            />
+          </div>
+
+          <div className="form-field">
             <label htmlFor="directManagerEmployeeId">Jefe inmediato</label>
             <select
               id="directManagerEmployeeId"
@@ -148,6 +193,38 @@ export default async function NewEmployeePage({
             </select>
           </div>
 
+          <div className="form-field">
+            <label htmlFor="workplaceId">Hotel / centro</label>
+            <select
+              id="workplaceId"
+              name="workplaceId"
+              defaultValue={workplaceId}
+            >
+              <option value="">Sin asignar</option>
+              {workplaces.map((workplace) => (
+                <option key={workplace.id} value={workplace.id}>
+                  {workplace.name} · {workplace.code}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-field">
+            <label htmlFor="departmentId">Departamento</label>
+            <select
+              id="departmentId"
+              name="departmentId"
+              defaultValue={departmentId}
+            >
+              <option value="">Sin asignar</option>
+              {departments.map((department) => (
+                <option key={department.id} value={department.id}>
+                  {department.name} · {department.workplace.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="form-field form-field-checkbox">
             <label htmlFor="isActive">Activo</label>
             <input
@@ -157,6 +234,13 @@ export default async function NewEmployeePage({
               defaultChecked={isActive}
               value="true"
             />
+          </div>
+
+          <div className="form-field form-field-full">
+            <p className="page-description">
+              Podemos guardar la ficha sin foto, pero si seleccionamos una
+              imagen quedará asociada al trabajador en el alta.
+            </p>
           </div>
 
           <div className="form-actions">

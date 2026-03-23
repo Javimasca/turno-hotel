@@ -13,9 +13,12 @@ type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
-function parseNumber(value: string | null) {
-  if (!value) return undefined;
-  const parsed = Number(value);
+function parseNumber(value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === "") return undefined;
+
+  const parsed =
+    typeof value === "number" ? value : Number(value);
+
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
@@ -41,28 +44,53 @@ export async function GET(_req: NextRequest, context: RouteContext) {
 export async function POST(req: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
+    const contentType = req.headers.get("content-type") || "";
 
-    const formData = await req.formData();
+    let jobCategoryId = "";
+    let contractType = "";
+    let startDate = "";
+    let endDate: string | null = null;
+    let seniorityDate: string | null = null;
+    let weeklyHours: number | undefined;
+    let dailyHours: number | undefined;
+    let employmentRate: number | undefined;
+    let notes: string | null = null;
 
-    const jobCategoryId = String(formData.get("jobCategoryId") ?? "");
-    const contractType = String(formData.get("contractType") ?? "");
-    const startDate = String(formData.get("startDate") ?? "");
-    const endDate = formData.get("endDate")?.toString() || null;
-    const seniorityDate = formData.get("seniorityDate")?.toString() || null;
+    if (contentType.includes("application/json")) {
+      const body = await req.json();
 
-    const weeklyHours = parseNumber(
-      formData.get("weeklyHours")?.toString() ?? null,
-    );
-    const dailyHours = parseNumber(
-      formData.get("dailyHours")?.toString() ?? null,
-    );
-    const employmentRate = parseNumber(
-      formData.get("employmentRate")?.toString() ?? null,
-    );
+      jobCategoryId = String(body.jobCategoryId ?? "");
+      contractType = String(body.contractType ?? "");
+      startDate = String(body.startDate ?? "");
+      endDate = body.endDate ?? null;
+      seniorityDate = body.seniorityDate ?? null;
+      weeklyHours = parseNumber(body.weeklyHours);
+      dailyHours = parseNumber(body.dailyHours);
+      employmentRate = parseNumber(body.employmentRate);
+      notes = body.notes ?? null;
+    } else {
+      const formData = await req.formData();
 
-    const notes = formData.get("notes")?.toString() || null;
+      jobCategoryId = String(formData.get("jobCategoryId") ?? "");
+      contractType = String(formData.get("contractType") ?? "");
+      startDate = String(formData.get("startDate") ?? "");
+      endDate = formData.get("endDate")?.toString() || null;
+      seniorityDate = formData.get("seniorityDate")?.toString() || null;
 
-    await employeeContractService.create({
+      weeklyHours = parseNumber(
+        formData.get("weeklyHours")?.toString() ?? null,
+      );
+      dailyHours = parseNumber(
+        formData.get("dailyHours")?.toString() ?? null,
+      );
+      employmentRate = parseNumber(
+        formData.get("employmentRate")?.toString() ?? null,
+      );
+
+      notes = formData.get("notes")?.toString() || null;
+    }
+
+    const contract = await employeeContractService.create({
       employeeId: id,
       jobCategoryId,
       contractType: contractType as any,
@@ -74,6 +102,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
       employmentRate,
       notes,
     });
+
+    if (contentType.includes("application/json")) {
+      return NextResponse.json(contract, { status: 201 });
+    }
 
     return NextResponse.redirect(
       new URL(`/maestros/empleados/${id}/contratos`, req.url),

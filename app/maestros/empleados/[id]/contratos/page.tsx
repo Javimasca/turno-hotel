@@ -45,6 +45,9 @@ export default async function ContratosPage({ params }: Props) {
     <div className="page-shell">
       <div className="page-header">
         <div className="page-header-content">
+          <Link href="/maestros/empleados" className="back-link">
+            ← Volver a empleados
+          </Link>
           <h1>Contratos</h1>
           <p className="page-description">Histórico laboral del empleado</p>
         </div>
@@ -92,13 +95,11 @@ export default async function ContratosPage({ params }: Props) {
                   <td>{contrato.contractType}</td>
                   <td>{formatDate(contrato.startDate)}</td>
                   <td>{formatDate(contrato.endDate)}</td>
-                  <td>
-                    <div className="actions-cell">
-                      <ContratoActions
-                        employeeId={id}
-                        contractId={contrato.id}
-                      />
-                    </div>
+                  <td className="actions-cell">
+                    <ContratoActions
+                      employeeId={id}
+                      contractId={contrato.id}
+                    />
                   </td>
                 </tr>
               ))}

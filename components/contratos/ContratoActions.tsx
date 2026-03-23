@@ -34,10 +34,10 @@ export default function ContratoActions({
   }
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="actions-cell">
       <Link
         href={`/maestros/empleados/${employeeId}/contratos/${contractId}/editar`}
-        className="text-blue-600 underline"
+        className="button button-secondary"
       >
         Editar
       </Link>
@@ -45,7 +45,7 @@ export default function ContratoActions({
       <button
         type="button"
         onClick={handleDelete}
-        className="text-red-600 underline"
+        className="button button-danger"
       >
         Eliminar
       </button>

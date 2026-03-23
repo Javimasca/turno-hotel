@@ -7,6 +7,9 @@ import {
   EmployeeEmailAlreadyExistsError,
   EmployeeDirectManagerNotFoundError,
   EmployeeCannotManageThemselfError,
+  EmployeeWorkplaceNotFoundError,
+  EmployeeDepartmentNotFoundError,
+  EmployeeDepartmentWorkplaceMismatchError,
 } from "@/lib/employees/employee.service";
 
 type RouteContext = {
@@ -44,37 +47,27 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     let phone: string | null | undefined;
     let photoUrl: string | null | undefined;
     let directManagerEmployeeId: string | null | undefined;
+    let workplaceId: string | null | undefined;
+    let departmentId: string | null | undefined;
     let isActive: boolean | undefined;
 
     if (contentType.includes("application/json")) {
       const body = await request.json();
 
-      if ("code" in body) {
-        code = body.code ?? "";
-      }
-
-      if ("firstName" in body) {
-        firstName = body.firstName ?? "";
-      }
-
-      if ("lastName" in body) {
-        lastName = body.lastName ?? "";
-      }
-
-      if ("email" in body) {
-        email = body.email ?? null;
-      }
-
-      if ("phone" in body) {
-        phone = body.phone ?? null;
-      }
-
-      if ("photoUrl" in body) {
-        photoUrl = body.photoUrl ?? null;
-      }
-
+      if ("code" in body) code = body.code ?? "";
+      if ("firstName" in body) firstName = body.firstName ?? "";
+      if ("lastName" in body) lastName = body.lastName ?? "";
+      if ("email" in body) email = body.email ?? null;
+      if ("phone" in body) phone = body.phone ?? null;
+      if ("photoUrl" in body) photoUrl = body.photoUrl ?? null;
       if ("directManagerEmployeeId" in body) {
         directManagerEmployeeId = body.directManagerEmployeeId ?? null;
+      }
+      if ("workplaceId" in body) {
+        workplaceId = body.workplaceId ?? null;
+      }
+      if ("departmentId" in body) {
+        departmentId = body.departmentId ?? null;
       }
 
       if (typeof body.isActive === "boolean") {
@@ -87,9 +80,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       if (method === "DELETE") {
         await employeeService.delete(id);
 
-        return NextResponse.redirect(new URL("/maestros/empleados", request.url), {
-          status: 303,
-        });
+        return NextResponse.redirect(
+          new URL("/maestros/empleados", request.url),
+          { status: 303 },
+        );
       }
 
       if (formData.has("code")) {
@@ -121,6 +115,14 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
           formData.get("directManagerEmployeeId")?.toString() ?? null;
       }
 
+      if (formData.has("workplaceId")) {
+        workplaceId = formData.get("workplaceId")?.toString() ?? null;
+      }
+
+      if (formData.has("departmentId")) {
+        departmentId = formData.get("departmentId")?.toString() ?? null;
+      }
+
       if (formData.has("isActive")) {
         isActive = formData.get("isActive")?.toString() === "true";
       } else {
@@ -138,6 +140,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       ...(directManagerEmployeeId !== undefined
         ? { directManagerEmployeeId }
         : {}),
+      ...(workplaceId !== undefined ? { workplaceId } : {}),
+      ...(departmentId !== undefined ? { departmentId } : {}),
       ...(typeof isActive === "boolean" ? { isActive } : {}),
     });
 
@@ -160,6 +164,18 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
 
     if (error instanceof EmployeeCannotManageThemselfError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    if (error instanceof EmployeeWorkplaceNotFoundError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    if (error instanceof EmployeeDepartmentNotFoundError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    if (error instanceof EmployeeDepartmentWorkplaceMismatchError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 

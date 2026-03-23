@@ -16,6 +16,8 @@ type FormState = {
   phone: string
   photoUrl: string
   directManagerEmployeeId: string
+  workplaceId: string
+  departmentId: string
   isActive: string
 }
 
@@ -26,9 +28,33 @@ type EmployeeResponse = {
   lastName: string
   email: string | null
   phone: string | null
-  photoUrl: string | null
+  photoUrl?: string | null
   directManagerEmployeeId: string | null
   isActive: boolean
+  employeeWorkplaces?: Array<{
+    workplaceId: string
+    workplace: {
+      id: string
+      code: string
+      name: string
+    }
+  }>
+  employeeDepartments?: Array<{
+    departmentId: string
+    department: {
+      id: string
+      code: string
+      name: string
+      workplace?: {
+        id: string
+        name: string
+      }
+    }
+  }>
+}
+
+type ErrorResponse = {
+  error?: string
 }
 
 type Manager = {
@@ -36,6 +62,68 @@ type Manager = {
   code: string
   firstName: string
   lastName: string
+}
+
+type Workplace = {
+  id: string
+  code: string
+  name: string
+}
+
+type Department = {
+  id: string
+  code: string
+  name: string
+  workplace?: {
+    id: string
+    name: string
+  }
+}
+
+type WorkplacesApiResponse =
+  | Workplace[]
+  | {
+      data?: Workplace[]
+    }
+
+function isEmployeeResponse(value: unknown): value is EmployeeResponse {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  return (
+    'id' in value &&
+    'code' in value &&
+    'firstName' in value &&
+    'lastName' in value &&
+    'isActive' in value
+  )
+}
+
+function extractErrorMessage(value: unknown, fallback: string) {
+  if (
+    value &&
+    typeof value === 'object' &&
+    'error' in value &&
+    typeof value.error === 'string' &&
+    value.error.trim().length > 0
+  ) {
+    return value.error
+  }
+
+  return fallback
+}
+
+function normalizeWorkplacesResponse(value: WorkplacesApiResponse): Workplace[] {
+  if (Array.isArray(value)) {
+    return value
+  }
+
+  if (value && Array.isArray(value.data)) {
+    return value.data
+  }
+
+  return []
 }
 
 export default function EditEmployeePage({ params }: Props) {
@@ -51,10 +139,14 @@ export default function EditEmployeePage({ params }: Props) {
     phone: '',
     photoUrl: '',
     directManagerEmployeeId: '',
+    workplaceId: '',
+    departmentId: '',
     isActive: 'true',
   })
 
   const [managers, setManagers] = useState<Manager[]>([])
+  const [workplaces, setWorkplaces] = useState<Workplace[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
 
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -73,20 +165,66 @@ export default function EditEmployeePage({ params }: Props) {
         if (!isMounted) return
 
         setEmployeeId(resolved.id)
+        setErrorMessage(null)
 
-        const [employeeRes, managersRes] = await Promise.all([
-          fetch(`/api/maestros/empleados/${resolved.id}`, { cache: 'no-store' }),
-          fetch(`/api/maestros/empleados?isActive=true`, { cache: 'no-store' }),
-        ])
+        const employeeRes = await fetch(`/api/maestros/empleados/${resolved.id}`, {
+          cache: 'no-store',
+        })
 
-        const employeeJson = await employeeRes.json()
-        const managersJson = await managersRes.json()
+        const employeeJson: EmployeeResponse | ErrorResponse =
+          await employeeRes.json()
 
-        if (!employeeRes.ok) {
-          setErrorMessage(employeeJson.error ?? 'No se pudo cargar el empleado.')
+        if (!employeeRes.ok || !isEmployeeResponse(employeeJson)) {
+          if (!isMounted) return
+
+          setErrorMessage(
+            extractErrorMessage(
+              employeeJson,
+              'No se pudo cargar el empleado.',
+            ),
+          )
           setIsLoading(false)
           return
         }
+
+        const [managersResult, workplacesResult, departmentsResult] =
+          await Promise.allSettled([
+            fetch('/api/maestros/empleados?isActive=true', {
+              cache: 'no-store',
+            }).then(async (response) => {
+              const json = await response.json().catch(() => [])
+
+              if (!response.ok) {
+                return []
+              }
+
+              return Array.isArray(json) ? json : []
+            }),
+            fetch('/api/maestros/workplaces?isActive=true', {
+              cache: 'no-store',
+            }).then(async (response) => {
+              const json: WorkplacesApiResponse = await response
+                .json()
+                .catch(() => ({ data: [] }))
+
+              if (!response.ok) {
+                return []
+              }
+
+              return normalizeWorkplacesResponse(json)
+            }),
+            fetch('/api/maestros/departamentos?isActive=true', {
+              cache: 'no-store',
+            }).then(async (response) => {
+              const json = await response.json().catch(() => [])
+
+              if (!response.ok) {
+                return []
+              }
+
+              return Array.isArray(json) ? json : []
+            }),
+          ])
 
         if (!isMounted) return
 
@@ -98,10 +236,22 @@ export default function EditEmployeePage({ params }: Props) {
           phone: employeeJson.phone ?? '',
           photoUrl: employeeJson.photoUrl ?? '',
           directManagerEmployeeId: employeeJson.directManagerEmployeeId ?? '',
+          workplaceId: employeeJson.employeeWorkplaces?.[0]?.workplaceId ?? '',
+          departmentId: employeeJson.employeeDepartments?.[0]?.departmentId ?? '',
           isActive: employeeJson.isActive ? 'true' : 'false',
         })
 
-        setManagers(Array.isArray(managersJson) ? managersJson : [])
+        setManagers(
+          managersResult.status === 'fulfilled' ? managersResult.value : [],
+        )
+        setWorkplaces(
+          workplacesResult.status === 'fulfilled' ? workplacesResult.value : [],
+        )
+        setDepartments(
+          departmentsResult.status === 'fulfilled'
+            ? departmentsResult.value
+            : [],
+        )
 
         setIsLoading(false)
       } catch {
@@ -126,6 +276,12 @@ export default function EditEmployeePage({ params }: Props) {
     return initials || 'EM'
   }, [form.firstName, form.lastName])
 
+  const filteredDepartments = form.workplaceId
+    ? departments.filter(
+        (department) => department.workplace?.id === form.workplaceId,
+      )
+    : departments
+
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
 
@@ -144,8 +300,9 @@ export default function EditEmployeePage({ params }: Props) {
           lastName: form.lastName,
           email: form.email,
           phone: form.phone,
-          photoUrl: form.photoUrl || null,
           directManagerEmployeeId: form.directManagerEmployeeId || null,
+          workplaceId: form.workplaceId || null,
+          departmentId: form.departmentId || null,
           isActive: form.isActive === 'true',
         }),
       })
@@ -457,6 +614,65 @@ export default function EditEmployeePage({ params }: Props) {
                 </select>
               </div>
 
+              <div className="form-field">
+                <label>Hotel / centro</label>
+                <select
+                  value={form.workplaceId}
+                  onChange={(e) => {
+                    const nextWorkplaceId = e.target.value
+
+                    setForm((f) => {
+                      const nextDepartments = nextWorkplaceId
+                        ? departments.filter(
+                            (department) =>
+                              department.workplace?.id === nextWorkplaceId,
+                          )
+                        : departments
+
+                      const keepDepartment = nextDepartments.some(
+                        (department) => department.id === f.departmentId,
+                      )
+
+                      return {
+                        ...f,
+                        workplaceId: nextWorkplaceId,
+                        departmentId: keepDepartment ? f.departmentId : '',
+                      }
+                    })
+                  }}
+                >
+                  <option value="">Sin asignar</option>
+                  {workplaces.map((workplace) => (
+                    <option key={workplace.id} value={workplace.id}>
+                      {workplace.name} · {workplace.code}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-field">
+                <label>Departamento</label>
+                <select
+                  value={form.departmentId}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      departmentId: e.target.value,
+                    }))
+                  }
+                >
+                  <option value="">Sin asignar</option>
+                  {filteredDepartments.map((department) => (
+                    <option key={department.id} value={department.id}>
+                      {department.name}
+                      {department.workplace?.name
+                        ? ` · ${department.workplace.name}`
+                        : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div className="form-field form-field-checkbox">
                 <label>Activo</label>
                 <input
@@ -484,7 +700,7 @@ export default function EditEmployeePage({ params }: Props) {
         <div className="page-actions">
           <Link
             href={`/maestros/empleados/${employeeId}/contratos`}
-            className="button"
+            className="button button-secondary"
           >
             Ver contratos
           </Link>

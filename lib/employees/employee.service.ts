@@ -35,6 +35,27 @@ export class EmployeeCannotManageThemselfError extends Error {
   }
 }
 
+export class EmployeeWorkplaceNotFoundError extends Error {
+  constructor() {
+    super("El centro seleccionado no existe.");
+    this.name = "EmployeeWorkplaceNotFoundError";
+  }
+}
+
+export class EmployeeDepartmentNotFoundError extends Error {
+  constructor() {
+    super("El departamento seleccionado no existe.");
+    this.name = "EmployeeDepartmentNotFoundError";
+  }
+}
+
+export class EmployeeDepartmentWorkplaceMismatchError extends Error {
+  constructor() {
+    super("El departamento seleccionado no pertenece al centro indicado.");
+    this.name = "EmployeeDepartmentWorkplaceMismatchError";
+  }
+}
+
 type ListEmployeesFilters = {
   isActive?: boolean;
   search?: string;
@@ -46,7 +67,10 @@ type CreateEmployeeInput = {
   lastName: string;
   email?: string | null;
   phone?: string | null;
+  photoUrl?: string | null;
   directManagerEmployeeId?: string | null;
+  workplaceId?: string | null;
+  departmentId?: string | null;
   isActive?: boolean;
 };
 
@@ -56,7 +80,10 @@ type UpdateEmployeeInput = {
   lastName?: string;
   email?: string | null;
   phone?: string | null;
+  photoUrl?: string | null;
   directManagerEmployeeId?: string | null;
+  workplaceId?: string | null;
+  departmentId?: string | null;
   isActive?: boolean;
 };
 
@@ -97,9 +124,15 @@ export const employeeService = {
     const lastName = normalizeString(input.lastName);
     const email = normalizeString(input.email ?? undefined);
     const phone = normalizeString(input.phone ?? undefined);
+    const photoUrl =
+      input.photoUrl !== undefined
+        ? normalizeString(input.photoUrl ?? undefined) ?? null
+        : null;
     const directManagerEmployeeId = normalizeString(
       input.directManagerEmployeeId ?? undefined,
     );
+    const workplaceId = normalizeString(input.workplaceId ?? undefined);
+    const departmentId = normalizeString(input.departmentId ?? undefined);
     const isActive = typeof input.isActive === "boolean" ? input.isActive : true;
 
     if (!code) {
@@ -138,13 +171,44 @@ export const employeeService = {
       }
     }
 
+    let workplace:
+      | Awaited<ReturnType<typeof employeeRepository.findWorkplaceById>>
+      | null = null;
+
+    if (workplaceId) {
+      workplace = await employeeRepository.findWorkplaceById(workplaceId);
+
+      if (!workplace) {
+        throw new EmployeeWorkplaceNotFoundError();
+      }
+    }
+
+    let department:
+      | Awaited<ReturnType<typeof employeeRepository.findDepartmentById>>
+      | null = null;
+
+    if (departmentId) {
+      department = await employeeRepository.findDepartmentById(departmentId);
+
+      if (!department) {
+        throw new EmployeeDepartmentNotFoundError();
+      }
+    }
+
+    if (workplace && department && department.workplaceId !== workplace.id) {
+      throw new EmployeeDepartmentWorkplaceMismatchError();
+    }
+
     return employeeRepository.create({
       code,
       firstName,
       lastName,
       email: email ?? null,
       phone: phone ?? null,
+      photoUrl,
       directManagerEmployeeId: directManagerEmployeeId ?? null,
+      workplaceId: workplaceId ?? null,
+      departmentId: departmentId ?? null,
       isActive,
     });
   },
@@ -183,9 +247,24 @@ export const employeeService = {
         ? normalizeString(input.phone ?? undefined) ?? null
         : undefined;
 
+    const photoUrl =
+      input.photoUrl !== undefined
+        ? normalizeString(input.photoUrl ?? undefined) ?? null
+        : undefined;
+
     const directManagerEmployeeId =
       input.directManagerEmployeeId !== undefined
         ? normalizeString(input.directManagerEmployeeId ?? undefined) ?? null
+        : undefined;
+
+    const workplaceId =
+      input.workplaceId !== undefined
+        ? normalizeString(input.workplaceId ?? undefined) ?? null
+        : undefined;
+
+    const departmentId =
+      input.departmentId !== undefined
+        ? normalizeString(input.departmentId ?? undefined) ?? null
         : undefined;
 
     if (input.code !== undefined && !code) {
@@ -232,15 +311,56 @@ export const employeeService = {
       }
     }
 
+    let workplace:
+      | Awaited<ReturnType<typeof employeeRepository.findWorkplaceById>>
+      | null = null;
+
+    if (workplaceId) {
+      workplace = await employeeRepository.findWorkplaceById(workplaceId);
+
+      if (!workplace) {
+        throw new EmployeeWorkplaceNotFoundError();
+      }
+    }
+
+    let department:
+      | Awaited<ReturnType<typeof employeeRepository.findDepartmentById>>
+      | null = null;
+
+    if (departmentId) {
+      department = await employeeRepository.findDepartmentById(departmentId);
+
+      if (!department) {
+        throw new EmployeeDepartmentNotFoundError();
+      }
+    }
+
+    const effectiveWorkplaceId =
+      workplaceId !== undefined
+        ? workplaceId
+        : existingEmployee.employeeWorkplaces[0]?.workplaceId ?? null;
+
+    if (department) {
+      if (
+        effectiveWorkplaceId &&
+        department.workplaceId !== effectiveWorkplaceId
+      ) {
+        throw new EmployeeDepartmentWorkplaceMismatchError();
+      }
+    }
+
     return employeeRepository.update(normalizedId, {
       ...(code !== undefined ? { code } : {}),
       ...(firstName !== undefined ? { firstName } : {}),
       ...(lastName !== undefined ? { lastName } : {}),
       ...(email !== undefined ? { email } : {}),
       ...(phone !== undefined ? { phone } : {}),
+      ...(photoUrl !== undefined ? { photoUrl } : {}),
       ...(directManagerEmployeeId !== undefined
         ? { directManagerEmployeeId }
         : {}),
+      ...(workplaceId !== undefined ? { workplaceId } : {}),
+      ...(departmentId !== undefined ? { departmentId } : {}),
       ...(typeof input.isActive === "boolean" ? { isActive: input.isActive } : {}),
     });
   },

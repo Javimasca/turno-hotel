@@ -32,10 +32,27 @@ async function getContrato(id: string, contractId: string) {
   return res.json();
 }
 
+async function getJobCategories() {
+  const baseUrl = await getBaseUrl();
+
+  const res = await fetch(`${baseUrl}/api/maestros/categorias-profesionales`, {
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    return [];
+  }
+
+  return res.json();
+}
+
 export default async function EditarContratoPage({ params }: Props) {
   const { id, contractId } = await params;
 
-  const contrato = await getContrato(id, contractId);
+  const [contrato, jobCategories] = await Promise.all([
+    getContrato(id, contractId),
+    getJobCategories(),
+  ]);
 
   if (!contrato) {
     notFound();
@@ -66,6 +83,7 @@ export default async function EditarContratoPage({ params }: Props) {
             employeeId={id}
             mode="edit"
             initialData={contrato}
+            jobCategories={jobCategories}
           />
         </div>
       </div>

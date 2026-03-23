@@ -3,16 +3,26 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+type JobCategoryOption = {
+  id: string;
+  code: string;
+  name: string;
+  shortName?: string | null;
+  isActive?: boolean;
+};
+
 type Props = {
   employeeId: string;
   mode: "create" | "edit";
   initialData?: any;
+  jobCategories: JobCategoryOption[];
 };
 
 export default function ContratoForm({
   employeeId,
   mode,
   initialData,
+  jobCategories,
 }: Props) {
   const router = useRouter();
 
@@ -74,7 +84,9 @@ export default function ContratoForm({
       });
 
       if (!res.ok) {
-        alert("Error guardando contrato");
+        const error = await res.json().catch(() => null);
+        console.error(error);
+        alert(error?.error || error?.message || "Error guardando contrato");
         return;
       }
 
@@ -92,12 +104,20 @@ export default function ContratoForm({
       <div className="form-grid">
         <div className="form-field">
           <label>Categoría profesional</label>
-          <input
+          <select
             name="jobCategoryId"
             value={form.jobCategoryId}
             onChange={handleChange}
-            className="input"
-          />
+            className="select"
+            required
+          >
+            <option value="">Seleccionamos una categoría</option>
+            {jobCategories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="form-field">
@@ -198,8 +218,8 @@ export default function ContratoForm({
             {isSubmitting
               ? "Guardando..."
               : mode === "create"
-              ? "Crear contrato"
-              : "Guardar cambios"}
+                ? "Crear contrato"
+                : "Guardar cambios"}
           </button>
         </div>
       </div>

@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import ContratoForm from "@/components/contratos/ContratoForm";
 
 type Props = {
@@ -6,8 +7,31 @@ type Props = {
   }>;
 };
 
+async function getBaseUrl() {
+  const headersList = await headers();
+  const host = headersList.get("host");
+  const protocol = process.env.NODE_ENV === "development" ? "http" : "https";
+
+  return `${protocol}://${host}`;
+}
+
+async function getJobCategories() {
+  const baseUrl = await getBaseUrl();
+
+  const res = await fetch(`${baseUrl}/api/maestros/categorias-profesionales`, {
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    return [];
+  }
+
+  return res.json();
+}
+
 export default async function NuevoContratoPage({ params }: Props) {
   const { id } = await params;
+  const jobCategories = await getJobCategories();
 
   return (
     <div className="page-shell">
@@ -30,7 +54,11 @@ export default async function NuevoContratoPage({ params }: Props) {
         </div>
 
         <div className="form-section-body">
-          <ContratoForm employeeId={id} mode="create" />
+          <ContratoForm
+            employeeId={id}
+            mode="create"
+            jobCategories={jobCategories}
+          />
         </div>
       </div>
     </div>
