@@ -1,167 +1,111 @@
-
 import Link from "next/link";
-
-import { prisma } from "@/lib/prisma";
-
-export const dynamic = "force-dynamic";
+import { headers } from "next/headers";
+import ContratoActions from "@/components/contratos/ContratoActions";
 
 type Props = {
-  params: Promise<{ id: string }>;
+  params: Promise<{
+    id: string;
+  }>;
 };
 
-export default async function EmployeeContractsPage({ params }: Props) {
+async function getBaseUrl() {
+  const headersList = await headers();
+  const host = headersList.get("host");
+  const protocol = process.env.NODE_ENV === "development" ? "http" : "https";
+
+  return `${protocol}://${host}`;
+}
+
+async function getContratos(employeeId: string) {
+  const baseUrl = await getBaseUrl();
+
+  const res = await fetch(
+    `${baseUrl}/api/maestros/empleados/${employeeId}/contratos`,
+    {
+      cache: "no-store",
+    }
+  );
+
+  if (!res.ok) return [];
+
+  return res.json();
+}
+
+function formatDate(value: string | null) {
+  if (!value) return "-";
+
+  return new Date(value).toLocaleDateString("es-ES");
+}
+
+export default async function ContratosPage({ params }: Props) {
   const { id } = await params;
-
-  const employee = await prisma.employee.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      code: true,
-      firstName: true,
-      lastName: true,
-      isActive: true,
-    },
-  });
-
-  if (!employee) {
-    return (
-      <main className="page-shell">
-        <section className="card">
-          <div className="empty-state">
-            <h3>Empleado no encontrado</h3>
-            <Link href="/maestros/empleados" className="button button-primary">
-              Volver a empleados
-            </Link>
-          </div>
-        </section>
-      </main>
-    );
-  }
-
-  const contracts = await prisma.employeeContract.findMany({
-    where: { employeeId: id },
-    include: {
-      jobCategory: {
-        select: {
-          id: true,
-          name: true,
-          shortName: true,
-        },
-      },
-    },
-    orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
-  });
-
-  const fullName = `${employee.firstName} ${employee.lastName}`;
-  const today = new Date();
+  const contratos = await getContratos(id);
 
   return (
-    <main className="page-shell">
-      <section className="page-header">
-        <div>
-          <Link
-            href={`/maestros/empleados/${employee.id}/editar`}
-            className="back-link"
-          >
-            ← Volver a empleado
-          </Link>
-
-          <p className="eyebrow">Maestros · Empleados · Contratos</p>
-
+    <div className="page-shell">
+      <div className="page-header">
+        <div className="page-header-content">
           <h1>Contratos</h1>
-
-          <p className="page-description">
-            Gestionamos el histórico contractual de{" "}
-            <strong>{fullName}</strong>.
-          </p>
+          <p className="page-description">Histórico laboral del empleado</p>
         </div>
 
         <div className="page-actions">
           <Link
-            href={`/maestros/empleados/${employee.id}/contratos/nuevo`}
+            href={`/maestros/empleados/${id}/contratos/nuevo`}
             className="button button-primary"
           >
             Nuevo contrato
           </Link>
         </div>
-      </section>
+      </div>
 
-      <section className="card">
-        {contracts.length === 0 ? (
-          <div className="empty-state">
-            <h3>Sin contratos</h3>
-            <p>
-              Este empleado todavía no tiene contratos registrados. Añadimos el
-              primero para empezar a trabajar con su historial laboral.
-            </p>
-            <Link
-              href={`/maestros/empleados/${employee.id}/contratos/nuevo`}
-              className="button button-primary"
-            >
-              Crear contrato
-            </Link>
-          </div>
-        ) : (
-          <div className="table-wrapper">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Categoría</th>
-                  <th>Tipo</th>
-                  <th>Inicio</th>
-                  <th>Fin</th>
-                  <th>Horas</th>
-                  <th>Estado</th>
+      {contratos.length === 0 ? (
+        <div className="empty-state">
+          <h3 className="empty-state-title">No hay contratos</h3>
+          <p className="empty-state-text">
+            Este empleado todavía no tiene contratos registrados.
+          </p>
+          <Link
+            href={`/maestros/empleados/${id}/contratos/nuevo`}
+            className="button button-primary"
+          >
+            Crear primer contrato
+          </Link>
+        </div>
+      ) : (
+        <div className="data-table-wrapper">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Categoría</th>
+                <th>Tipo</th>
+                <th>Inicio</th>
+                <th>Fin</th>
+                <th className="actions-column">Acciones</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {contratos.map((contrato: any) => (
+                <tr key={contrato.id}>
+                  <td>{contrato.jobCategory?.name || "-"}</td>
+                  <td>{contrato.contractType}</td>
+                  <td>{formatDate(contrato.startDate)}</td>
+                  <td>{formatDate(contrato.endDate)}</td>
+                  <td>
+                    <div className="actions-cell">
+                      <ContratoActions
+                        employeeId={id}
+                        contractId={contrato.id}
+                      />
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {contracts.map((contract) => {
-                  const isActive =
-                    contract.startDate <= today &&
-                    (!contract.endDate || contract.endDate >= today);
-
-                  return (
-                    <tr key={contract.id}>
-                      <td>
-                        {contract.jobCategory.shortName ||
-                          contract.jobCategory.name}
-                      </td>
-
-                      <td>{contract.contractType}</td>
-
-                      <td>
-                        {new Date(contract.startDate).toLocaleDateString()}
-                      </td>
-
-                      <td>
-                        {contract.endDate
-                          ? new Date(contract.endDate).toLocaleDateString()
-                          : "—"}
-                      </td>
-
-                      <td>
-                        {contract.weeklyHours
-                          ? `${contract.weeklyHours}h/sem`
-                          : "—"}
-                      </td>
-
-                      <td>
-                        <span
-                          className={`status-chip ${
-                            isActive ? "active" : "inactive"
-                          }`}
-                        >
-                          {isActive ? "Vigente" : "Finalizado"}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-    </main>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }

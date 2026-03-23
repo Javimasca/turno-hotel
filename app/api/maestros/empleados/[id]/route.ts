@@ -42,6 +42,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     let lastName: string | undefined;
     let email: string | null | undefined;
     let phone: string | null | undefined;
+    let photoUrl: string | null | undefined;
     let directManagerEmployeeId: string | null | undefined;
     let isActive: boolean | undefined;
 
@@ -66,6 +67,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
       if ("phone" in body) {
         phone = body.phone ?? null;
+      }
+
+      if ("photoUrl" in body) {
+        photoUrl = body.photoUrl ?? null;
       }
 
       if ("directManagerEmployeeId" in body) {
@@ -107,6 +112,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         phone = formData.get("phone")?.toString() ?? null;
       }
 
+      if (formData.has("photoUrl")) {
+        photoUrl = formData.get("photoUrl")?.toString() ?? null;
+      }
+
       if (formData.has("directManagerEmployeeId")) {
         directManagerEmployeeId =
           formData.get("directManagerEmployeeId")?.toString() ?? null;
@@ -125,6 +134,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       ...(lastName !== undefined ? { lastName } : {}),
       ...(email !== undefined ? { email } : {}),
       ...(phone !== undefined ? { phone } : {}),
+      ...(photoUrl !== undefined ? { photoUrl } : {}),
       ...(directManagerEmployeeId !== undefined
         ? { directManagerEmployeeId }
         : {}),

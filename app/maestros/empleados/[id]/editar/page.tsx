@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useState } from 'react'
 
 type Props = {
   params: Promise<{ id: string }>
@@ -14,6 +14,7 @@ type FormState = {
   lastName: string
   email: string
   phone: string
+  photoUrl: string
   directManagerEmployeeId: string
   isActive: string
 }
@@ -25,6 +26,7 @@ type EmployeeResponse = {
   lastName: string
   email: string | null
   phone: string | null
+  photoUrl: string | null
   directManagerEmployeeId: string | null
   isActive: boolean
 }
@@ -47,6 +49,7 @@ export default function EditEmployeePage({ params }: Props) {
     lastName: '',
     email: '',
     phone: '',
+    photoUrl: '',
     directManagerEmployeeId: '',
     isActive: 'true',
   })
@@ -56,6 +59,8 @@ export default function EditEmployeePage({ params }: Props) {
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false)
+  const [selectedPhoto, setSelectedPhoto] = useState<File | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   useEffect(() => {
@@ -91,6 +96,7 @@ export default function EditEmployeePage({ params }: Props) {
           lastName: employeeJson.lastName,
           email: employeeJson.email ?? '',
           phone: employeeJson.phone ?? '',
+          photoUrl: employeeJson.photoUrl ?? '',
           directManagerEmployeeId: employeeJson.directManagerEmployeeId ?? '',
           isActive: employeeJson.isActive ? 'true' : 'false',
         })
@@ -112,6 +118,14 @@ export default function EditEmployeePage({ params }: Props) {
     }
   }, [params])
 
+  const employeeInitials = useMemo(() => {
+    const firstInitial = form.firstName.trim().charAt(0)
+    const lastInitial = form.lastName.trim().charAt(0)
+    const initials = `${firstInitial}${lastInitial}`.trim().toUpperCase()
+
+    return initials || 'EM'
+  }, [form.firstName, form.lastName])
+
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
 
@@ -130,6 +144,7 @@ export default function EditEmployeePage({ params }: Props) {
           lastName: form.lastName,
           email: form.email,
           phone: form.phone,
+          photoUrl: form.photoUrl || null,
           directManagerEmployeeId: form.directManagerEmployeeId || null,
           isActive: form.isActive === 'true',
         }),
@@ -184,6 +199,49 @@ export default function EditEmployeePage({ params }: Props) {
     }
   }
 
+  async function handlePhotoUpload() {
+    if (!employeeId) return
+
+    if (!selectedPhoto) {
+      setErrorMessage('Debemos seleccionar una imagen antes de subirla.')
+      return
+    }
+
+    setErrorMessage(null)
+    setIsUploadingPhoto(true)
+
+    try {
+      const body = new FormData()
+      body.append('file', selectedPhoto)
+
+      const response = await fetch(
+        `/api/maestros/empleados/${employeeId}/foto`,
+        {
+          method: 'POST',
+          body,
+        },
+      )
+
+      const json = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        setErrorMessage(json?.error ?? 'No se pudo subir la foto.')
+        return
+      }
+
+      setForm((current) => ({
+        ...current,
+        photoUrl: json?.photoUrl ?? current.photoUrl,
+      }))
+      setSelectedPhoto(null)
+      router.refresh()
+    } catch {
+      setErrorMessage('Error inesperado al subir la foto.')
+    } finally {
+      setIsUploadingPhoto(false)
+    }
+  }
+
   if (isLoading) {
     return (
       <main className="page-shell">
@@ -209,6 +267,123 @@ export default function EditEmployeePage({ params }: Props) {
       <form className="form-layout" onSubmit={handleSubmit}>
         <section className="form-section">
           <div className="form-section-body">
+            <div
+              className="card"
+              style={{
+                marginBottom: '1.5rem',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '1rem',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                }}
+              >
+                {form.photoUrl ? (
+                  <img
+                    src={form.photoUrl}
+                    alt={`Foto de ${form.firstName} ${form.lastName}`}
+                    style={{
+                      width: '88px',
+                      height: '88px',
+                      borderRadius: '9999px',
+                      objectFit: 'cover',
+                      border: '1px solid #d1d5db',
+                      flexShrink: 0,
+                    }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: '88px',
+                      height: '88px',
+                      borderRadius: '9999px',
+                      border: '1px solid #d1d5db',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '1.5rem',
+                      fontWeight: 700,
+                      backgroundColor: '#f8fafc',
+                      color: '#334155',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {employeeInitials}
+                  </div>
+                )}
+
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.5rem',
+                    minWidth: '260px',
+                    flex: 1,
+                  }}
+                >
+                  <div>
+                    <h3
+                      style={{
+                        margin: 0,
+                      }}
+                    >
+                      Foto del empleado
+                    </h3>
+
+                    <p
+                      style={{
+                        margin: '0.35rem 0 0 0',
+                        color: '#64748b',
+                      }}
+                    >
+                      Podemos subir una imagen y dejarla asociada a la ficha.
+                    </p>
+                  </div>
+
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] ?? null
+                      setSelectedPhoto(file)
+                    }}
+                  />
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: '0.75rem',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      onClick={handlePhotoUpload}
+                      disabled={isUploadingPhoto || isSubmitting || isDeleting}
+                    >
+                      {isUploadingPhoto ? 'Subiendo foto...' : 'Subir foto'}
+                    </button>
+
+                    {selectedPhoto ? (
+                      <span
+                        style={{
+                          fontSize: '0.875rem',
+                          color: '#64748b',
+                        }}
+                      >
+                        Archivo seleccionado: {selectedPhoto.name}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="form-grid">
               <div className="form-field">
                 <label>Código</label>
@@ -322,7 +497,7 @@ export default function EditEmployeePage({ params }: Props) {
             type="button"
             className="button button-danger"
             onClick={handleDelete}
-            disabled={isDeleting || isSubmitting}
+            disabled={isDeleting || isSubmitting || isUploadingPhoto}
           >
             {isDeleting ? 'Eliminando...' : 'Eliminar'}
           </button>
@@ -330,7 +505,7 @@ export default function EditEmployeePage({ params }: Props) {
           <button
             type="submit"
             className="button button-primary"
-            disabled={isDeleting || isSubmitting}
+            disabled={isDeleting || isSubmitting || isUploadingPhoto}
           >
             {isSubmitting ? 'Guardando...' : 'Guardar'}
           </button>
