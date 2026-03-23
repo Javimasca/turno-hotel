@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 import { prisma } from "@/lib/prisma";
@@ -180,12 +181,13 @@ export default async function EmployeesPage() {
                           }}
                         >
                           {employee.photoUrl ? (
-                            <img
+                            <Image
                               src={employee.photoUrl}
                               alt={`Foto de ${fullName}`}
+                              width={72}
+                              height={72}
+                              quality={90}
                               style={{
-                                width: "72px",
-                                height: "72px",
                                 borderRadius: "9999px",
                                 objectFit: "cover",
                                 border: "1px solid #d1d5db",
