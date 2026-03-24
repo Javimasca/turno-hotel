@@ -56,6 +56,15 @@ export default function MaestrosPage() {
           </p>
           <span className="nav-card-link">Gestionar →</span>
         </Link>
+
+        <Link href="/maestros/organigrama" className="nav-card">
+          <h2 className="nav-card-title">Organigrama</h2>
+          <p className="nav-card-text">
+            Visualizamos la estructura jerárquica real del equipo con navegación,
+            búsqueda, zoom y control por niveles.
+          </p>
+          <span className="nav-card-link">Abrir →</span>
+        </Link>
       </section>
     </main>
   )
