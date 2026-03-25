@@ -65,6 +65,15 @@ export default function MaestrosPage() {
           </p>
           <span className="nav-card-link">Abrir →</span>
         </Link>
+
+        <Link href="/turnos" className="nav-card">
+          <h2 className="nav-card-title">Turnos</h2>
+          <p className="nav-card-text">
+            Accedemos al módulo operativo para crear maestros de turno, asignar
+            turnos reales y activar la planificación semanal.
+          </p>
+          <span className="nav-card-link">Abrir →</span>
+        </Link>
       </section>
     </main>
   )

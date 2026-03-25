@@ -18,6 +18,18 @@ enum ContractType {
   OTRO
 }
 
+enum ShiftStatus {
+  BORRADOR
+  PUBLICADO
+  CANCELADO
+}
+
+enum ShiftMasterType {
+  GENERAL
+  RESTAURANTE
+  PISOS
+}
+
 model Workplace {
   id          String   @id @default(cuid())
   code        String   @unique
@@ -29,6 +41,8 @@ model Workplace {
 
   departments        Department[]
   employeeWorkplaces EmployeeWorkplace[]
+  shifts             Shift[]
+  shiftMasters       ShiftMaster[]
 
   @@index([name])
   @@map("workplaces")
@@ -50,6 +64,7 @@ model Department {
   departmentShiftTemplates DepartmentShiftTemplate[]
   employeeDepartments      EmployeeDepartment[]
   shifts                   Shift[]
+  shiftMasters             ShiftMaster[]
 
   @@unique([workplaceId, code])
   @@unique([workplaceId, name])
@@ -72,7 +87,6 @@ model WorkArea {
   department              Department              @relation(fields: [departmentId], references: [id], onDelete: Cascade)
   quadrantGroups          QuadrantGroup[]
   departmentJobCategories DepartmentJobCategory[]
-  shifts                  Shift[]
 
   @@unique([departmentId, code])
   @@unique([departmentId, name])
@@ -116,6 +130,7 @@ model JobCategory {
 
   departmentJobCategories DepartmentJobCategory[]
   employeeContracts       EmployeeContract[]
+  shifts                  Shift[]
 
   @@index([displayOrder])
   @@index([name])
@@ -161,7 +176,6 @@ model ShiftTemplate {
   updatedAt       DateTime @updatedAt
 
   departmentShiftTemplates DepartmentShiftTemplate[]
-  shifts                   Shift[]
 
   @@index([name])
   @@map("shift_templates")
@@ -265,25 +279,58 @@ model EmployeeDepartment {
 }
 
 model Shift {
-  id              String   @id @default(cuid())
-  employeeId      String
-  departmentId    String
-  workAreaId      String?
-  shiftTemplateId String
-  date            DateTime
-  notes           String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id            String      @id @default(cuid())
+  employeeId    String
+  workplaceId   String
+  departmentId  String
+  jobCategoryId String?
+  shiftMasterId String?
+  startAt       DateTime
+  endAt         DateTime
+  status        ShiftStatus @default(BORRADOR)
+  notes         String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
-  employee      Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  department    Department    @relation(fields: [departmentId], references: [id], onDelete: Restrict)
-  workArea      WorkArea?     @relation(fields: [workAreaId], references: [id], onDelete: Restrict)
-  shiftTemplate ShiftTemplate @relation(fields: [shiftTemplateId], references: [id], onDelete: Restrict)
+  employee     Employee      @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  workplace    Workplace     @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+  department   Department    @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  jobCategory  JobCategory?  @relation(fields: [jobCategoryId], references: [id], onDelete: SetNull)
+  shiftMaster  ShiftMaster?  @relation(fields: [shiftMasterId], references: [id], onDelete: SetNull)
 
-  @@unique([employeeId, date])
-  @@index([departmentId, date])
-  @@index([workAreaId, date])
-  @@index([shiftTemplateId, date])
-  @@index([date])
-  @@map("shifts")
+  @@index([shiftMasterId])
+}
+model ShiftMaster {
+  id                      String          @id @default(cuid())
+  code                    String
+  name                    String
+  description             String?
+  workplaceId             String
+  departmentId            String
+  type                    ShiftMasterType @default(GENERAL)
+  startMinute             Int
+  endMinute               Int
+  crossesMidnight         Boolean         @default(false)
+  isPartial               Boolean         @default(false)
+  backgroundColor         String?
+  coversBreakfast         Boolean         @default(false)
+  coversLunch             Boolean         @default(false)
+  coversDinner            Boolean         @default(false)
+  countsForRoomAssignment Boolean         @default(false)
+  isActive                Boolean         @default(true)
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @updatedAt
+
+  workplace  Workplace  @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  shifts     Shift[]
+
+  @@unique([departmentId, code])
+  @@unique([departmentId, name])
+  @@index([workplaceId])
+  @@index([departmentId])
+  @@index([type])
+  @@index([isActive])
+  @@index([startMinute, endMinute])
+  @@map("shift_masters")
 }

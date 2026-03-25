@@ -68,6 +68,7 @@ type Workplace = {
   id: string
   code: string
   name: string
+  isActive?: boolean
 }
 
 type Department = {
@@ -200,7 +201,7 @@ export default function EditEmployeePage({ params }: Props) {
 
               return Array.isArray(json) ? json : []
             }),
-            fetch('/api/maestros/workplaces?isActive=true', {
+            fetch('/api/workplaces', {
               cache: 'no-store',
             }).then(async (response) => {
               const json: WorkplacesApiResponse = await response
@@ -211,7 +212,9 @@ export default function EditEmployeePage({ params }: Props) {
                 return []
               }
 
-              return normalizeWorkplacesResponse(json)
+              return normalizeWorkplacesResponse(json).filter(
+                (workplace) => workplace.isActive !== false,
+              )
             }),
             fetch('/api/maestros/departamentos?isActive=true', {
               cache: 'no-store',
