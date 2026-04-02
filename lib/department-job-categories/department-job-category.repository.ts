@@ -2,8 +2,6 @@ import { prisma } from '@/lib/prisma'
 
 type ListDepartmentJobCategoriesParams = {
   departmentId?: string
-  workAreaId?: string
-  quadrantGroupId?: string
   jobCategoryId?: string
   isActive?: boolean
 }
@@ -11,8 +9,6 @@ type ListDepartmentJobCategoriesParams = {
 type CreateDepartmentJobCategoryInput = {
   departmentId: string
   jobCategoryId: string
-  workAreaId: string
-  quadrantGroupId: string
   displayOrder?: number
   isActive?: boolean
 }
@@ -20,8 +16,6 @@ type CreateDepartmentJobCategoryInput = {
 type UpdateDepartmentJobCategoryInput = {
   departmentId?: string
   jobCategoryId?: string
-  workAreaId?: string
-  quadrantGroupId?: string
   displayOrder?: number
   isActive?: boolean
 }
@@ -50,24 +44,6 @@ const departmentJobCategoryInclude = {
       isActive: true,
     },
   },
-  workArea: {
-    select: {
-      id: true,
-      departmentId: true,
-      code: true,
-      name: true,
-      isActive: true,
-    },
-  },
-  quadrantGroup: {
-    select: {
-      id: true,
-      workAreaId: true,
-      code: true,
-      name: true,
-      isActive: true,
-    },
-  },
 } as const
 
 export async function listDepartmentJobCategories(
@@ -76,10 +52,6 @@ export async function listDepartmentJobCategories(
   return prisma.departmentJobCategory.findMany({
     where: {
       ...(params.departmentId ? { departmentId: params.departmentId } : {}),
-      ...(params.workAreaId ? { workAreaId: params.workAreaId } : {}),
-      ...(params.quadrantGroupId
-        ? { quadrantGroupId: params.quadrantGroupId }
-        : {}),
       ...(params.jobCategoryId ? { jobCategoryId: params.jobCategoryId } : {}),
       ...(typeof params.isActive === 'boolean'
         ? { isActive: params.isActive }
@@ -100,15 +72,11 @@ export async function getDepartmentJobCategoryById(id: string) {
 export async function getDepartmentJobCategoryByUniqueContext(params: {
   departmentId: string
   jobCategoryId: string
-  workAreaId: string
-  quadrantGroupId: string
 }) {
   return prisma.departmentJobCategory.findFirst({
     where: {
       departmentId: params.departmentId,
       jobCategoryId: params.jobCategoryId,
-      workAreaId: params.workAreaId,
-      quadrantGroupId: params.quadrantGroupId,
     },
     include: departmentJobCategoryInclude,
   })
@@ -121,8 +89,6 @@ export async function createDepartmentJobCategory(
     data: {
       departmentId: data.departmentId,
       jobCategoryId: data.jobCategoryId,
-      workAreaId: data.workAreaId,
-      quadrantGroupId: data.quadrantGroupId,
       displayOrder: data.displayOrder ?? 0,
       isActive: data.isActive ?? true,
     },
@@ -142,10 +108,6 @@ export async function updateDepartmentJobCategory(
         : {}),
       ...(data.jobCategoryId !== undefined
         ? { jobCategoryId: data.jobCategoryId }
-        : {}),
-      ...(data.workAreaId !== undefined ? { workAreaId: data.workAreaId } : {}),
-      ...(data.quadrantGroupId !== undefined
-        ? { quadrantGroupId: data.quadrantGroupId }
         : {}),
       ...(data.displayOrder !== undefined
         ? { displayOrder: data.displayOrder }

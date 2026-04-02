@@ -8,13 +8,9 @@ import {
   updateDepartmentJobCategory,
 } from '@/lib/department-job-categories/department-job-category.repository'
 import { getJobCategoryById } from '@/lib/job-categories/job-category.repository'
-import { quadrantGroupRepository } from '@/lib/quadrant-groups/quadrant-group.repository'
-import { workAreaRepository } from '@/lib/work-areas/work-area.repository'
 
 type ListDepartmentJobCategoriesParams = {
   departmentId?: string
-  workAreaId?: string
-  quadrantGroupId?: string
   jobCategoryId?: string
   isActive?: boolean
 }
@@ -22,8 +18,6 @@ type ListDepartmentJobCategoriesParams = {
 type CreateDepartmentJobCategoryInput = {
   departmentId: string
   jobCategoryId: string
-  workAreaId: string
-  quadrantGroupId: string
   displayOrder?: number
   isActive?: boolean
 }
@@ -31,8 +25,6 @@ type CreateDepartmentJobCategoryInput = {
 type UpdateDepartmentJobCategoryInput = {
   departmentId?: string
   jobCategoryId?: string
-  workAreaId?: string
-  quadrantGroupId?: string
   displayOrder?: number
   isActive?: boolean
 }
@@ -47,7 +39,7 @@ export class DepartmentJobCategoryNotFoundError extends Error {
 export class DepartmentJobCategoryAlreadyExistsError extends Error {
   constructor() {
     super(
-      'Ya existe una asignación para ese departamento, zona, grupo y categoría profesional.',
+      'Ya existe una asignación para ese departamento y categoría profesional.',
     )
     this.name = 'DepartmentJobCategoryAlreadyExistsError'
   }
@@ -64,34 +56,6 @@ export class JobCategoryNotFoundForAssignmentError extends Error {
   constructor() {
     super('La categoría profesional indicada no existe.')
     this.name = 'JobCategoryNotFoundForAssignmentError'
-  }
-}
-
-export class WorkAreaNotFoundForAssignmentError extends Error {
-  constructor() {
-    super('La zona de trabajo indicada no existe.')
-    this.name = 'WorkAreaNotFoundForAssignmentError'
-  }
-}
-
-export class QuadrantGroupNotFoundForAssignmentError extends Error {
-  constructor() {
-    super('El grupo de cuadrante indicado no existe.')
-    this.name = 'QuadrantGroupNotFoundForAssignmentError'
-  }
-}
-
-export class WorkAreaDoesNotBelongToDepartmentError extends Error {
-  constructor() {
-    super('La zona de trabajo indicada no pertenece al departamento seleccionado.')
-    this.name = 'WorkAreaDoesNotBelongToDepartmentError'
-  }
-}
-
-export class QuadrantGroupDoesNotBelongToWorkAreaError extends Error {
-  constructor() {
-    super('El grupo de cuadrante indicado no pertenece a la zona de trabajo seleccionada.')
-    this.name = 'QuadrantGroupDoesNotBelongToWorkAreaError'
   }
 }
 
@@ -120,14 +84,10 @@ function normalizeDisplayOrder(value?: number) {
 async function validateContext(params: {
   departmentId: string
   jobCategoryId: string
-  workAreaId: string
-  quadrantGroupId: string
 }) {
-  const [department, jobCategory, workArea, quadrantGroup] = await Promise.all([
+  const [department, jobCategory] = await Promise.all([
     departmentRepository.findById(params.departmentId),
     getJobCategoryById(params.jobCategoryId),
-    workAreaRepository.findById(params.workAreaId),
-    quadrantGroupRepository.findById(params.quadrantGroupId),
   ])
 
   if (!department) {
@@ -138,27 +98,9 @@ async function validateContext(params: {
     throw new JobCategoryNotFoundForAssignmentError()
   }
 
-  if (!workArea) {
-    throw new WorkAreaNotFoundForAssignmentError()
-  }
-
-  if (!quadrantGroup) {
-    throw new QuadrantGroupNotFoundForAssignmentError()
-  }
-
-  if (workArea.departmentId !== department.id) {
-    throw new WorkAreaDoesNotBelongToDepartmentError()
-  }
-
-  if (quadrantGroup.workAreaId !== workArea.id) {
-    throw new QuadrantGroupDoesNotBelongToWorkAreaError()
-  }
-
   return {
     department,
     jobCategory,
-    workArea,
-    quadrantGroup,
   }
 }
 
@@ -166,8 +108,6 @@ async function ensureUniqueContext(
   params: {
     departmentId: string
     jobCategoryId: string
-    workAreaId: string
-    quadrantGroupId: string
   },
   currentId?: string,
 ) {
@@ -202,32 +142,21 @@ export async function createDepartmentJobCategoryRecord(
     input.jobCategoryId,
     'categoría profesional',
   )
-  const workAreaId = normalizeRequiredString(input.workAreaId, 'zona de trabajo')
-  const quadrantGroupId = normalizeRequiredString(
-    input.quadrantGroupId,
-    'grupo de cuadrante',
-  )
   const displayOrder = normalizeDisplayOrder(input.displayOrder)
 
   await validateContext({
     departmentId,
     jobCategoryId,
-    workAreaId,
-    quadrantGroupId,
   })
 
   await ensureUniqueContext({
     departmentId,
     jobCategoryId,
-    workAreaId,
-    quadrantGroupId,
   })
 
   return createDepartmentJobCategory({
     departmentId,
     jobCategoryId,
-    workAreaId,
-    quadrantGroupId,
     displayOrder,
     isActive: input.isActive ?? true,
   })
@@ -253,16 +182,6 @@ export async function updateDepartmentJobCategoryRecord(
       ? normalizeRequiredString(input.jobCategoryId, 'categoría profesional')
       : existing.jobCategoryId
 
-  const workAreaId =
-    input.workAreaId !== undefined
-      ? normalizeRequiredString(input.workAreaId, 'zona de trabajo')
-      : existing.workAreaId
-
-  const quadrantGroupId =
-    input.quadrantGroupId !== undefined
-      ? normalizeRequiredString(input.quadrantGroupId, 'grupo de cuadrante')
-      : existing.quadrantGroupId
-
   const displayOrder =
     input.displayOrder !== undefined
       ? normalizeDisplayOrder(input.displayOrder)
@@ -271,16 +190,12 @@ export async function updateDepartmentJobCategoryRecord(
   await validateContext({
     departmentId,
     jobCategoryId,
-    workAreaId,
-    quadrantGroupId,
   })
 
   await ensureUniqueContext(
     {
       departmentId,
       jobCategoryId,
-      workAreaId,
-      quadrantGroupId,
     },
     id,
   )
@@ -288,8 +203,6 @@ export async function updateDepartmentJobCategoryRecord(
   return updateDepartmentJobCategory(id, {
     ...(input.departmentId !== undefined ? { departmentId } : {}),
     ...(input.jobCategoryId !== undefined ? { jobCategoryId } : {}),
-    ...(input.workAreaId !== undefined ? { workAreaId } : {}),
-    ...(input.quadrantGroupId !== undefined ? { quadrantGroupId } : {}),
     ...(displayOrder !== undefined ? { displayOrder } : {}),
     ...(typeof input.isActive === 'boolean'
       ? { isActive: input.isActive }

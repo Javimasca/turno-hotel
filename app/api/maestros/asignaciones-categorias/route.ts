@@ -4,10 +4,6 @@ import {
   DepartmentJobCategoryAlreadyExistsError,
   DepartmentNotFoundForAssignmentError,
   JobCategoryNotFoundForAssignmentError,
-  QuadrantGroupDoesNotBelongToWorkAreaError,
-  QuadrantGroupNotFoundForAssignmentError,
-  WorkAreaDoesNotBelongToDepartmentError,
-  WorkAreaNotFoundForAssignmentError,
   createDepartmentJobCategoryRecord,
   listDepartmentJobCategoryRecords,
 } from '@/lib/department-job-categories/department-job-category.service'
@@ -35,15 +31,11 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
 
     const departmentId = searchParams.get('departmentId') || undefined
-    const workAreaId = searchParams.get('workAreaId') || undefined
-    const quadrantGroupId = searchParams.get('quadrantGroupId') || undefined
     const jobCategoryId = searchParams.get('jobCategoryId') || undefined
     const isActive = parseBoolean(searchParams.get('isActive'))
 
     const records = await listDepartmentJobCategoryRecords({
       ...(departmentId ? { departmentId } : {}),
-      ...(workAreaId ? { workAreaId } : {}),
-      ...(quadrantGroupId ? { quadrantGroupId } : {}),
       ...(jobCategoryId ? { jobCategoryId } : {}),
       ...(typeof isActive === 'boolean' ? { isActive } : {}),
     })
@@ -65,8 +57,6 @@ export async function POST(request: NextRequest) {
 
     let departmentId = ''
     let jobCategoryId = ''
-    let workAreaId = ''
-    let quadrantGroupId = ''
     let displayOrder: number | undefined = undefined
     let isActive: boolean | undefined = undefined
 
@@ -77,12 +67,6 @@ export async function POST(request: NextRequest) {
         typeof body.departmentId === 'string' ? body.departmentId : ''
       jobCategoryId =
         typeof body.jobCategoryId === 'string' ? body.jobCategoryId : ''
-      workAreaId =
-        typeof body.workAreaId === 'string' ? body.workAreaId : ''
-      quadrantGroupId =
-        typeof body.quadrantGroupId === 'string'
-          ? body.quadrantGroupId
-          : ''
 
       displayOrder = parseInteger(body.displayOrder)
       isActive = typeof body.isActive === 'boolean' ? body.isActive : undefined
@@ -91,8 +75,6 @@ export async function POST(request: NextRequest) {
 
       departmentId = formData.get('departmentId')?.toString() ?? ''
       jobCategoryId = formData.get('jobCategoryId')?.toString() ?? ''
-      workAreaId = formData.get('workAreaId')?.toString() ?? ''
-      quadrantGroupId = formData.get('quadrantGroupId')?.toString() ?? ''
 
       displayOrder = parseInteger(
         formData.get('displayOrder')?.toString() ?? undefined,
@@ -105,8 +87,6 @@ export async function POST(request: NextRequest) {
     const created = await createDepartmentJobCategoryRecord({
       departmentId,
       jobCategoryId,
-      workAreaId,
-      quadrantGroupId,
       displayOrder,
       isActive,
     })
@@ -128,22 +108,6 @@ export async function POST(request: NextRequest) {
     }
 
     if (error instanceof JobCategoryNotFoundForAssignmentError) {
-      return NextResponse.json({ error: error.message }, { status: 400 })
-    }
-
-    if (error instanceof WorkAreaNotFoundForAssignmentError) {
-      return NextResponse.json({ error: error.message }, { status: 400 })
-    }
-
-    if (error instanceof QuadrantGroupNotFoundForAssignmentError) {
-      return NextResponse.json({ error: error.message }, { status: 400 })
-    }
-
-    if (error instanceof WorkAreaDoesNotBelongToDepartmentError) {
-      return NextResponse.json({ error: error.message }, { status: 400 })
-    }
-
-    if (error instanceof QuadrantGroupDoesNotBelongToWorkAreaError) {
       return NextResponse.json({ error: error.message }, { status: 400 })
     }
 

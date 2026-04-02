@@ -31,7 +31,6 @@ export async function POST(request: NextRequest) {
       description: body.description ?? null,
       workplaceId: body.workplaceId,
       departmentId: body.departmentId,
-      jobCategoryId: body.jobCategoryId ?? null,
       type: body.type as ShiftMasterType | undefined,
       startMinute: body.startMinute,
       endMinute: body.endMinute,
