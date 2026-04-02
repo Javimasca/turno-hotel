@@ -7,15 +7,23 @@ import type {
 
 const MAX_SHIFT_DURATION_HOURS = 16;
 
+type GetShiftsByRangeInput = {
+  startAt: Date;
+  endAt: Date;
+  workplaceId?: string;
+  departmentId?: string;
+  workAreaId?: string;
+};
+
 export const shiftService = {
   async getById(id: string) {
     return shiftRepository.findById(id);
   },
 
-  async getByRange(startAt: Date, endAt: Date) {
-    validateDateRange(startAt, endAt);
+  async getByRange(input: GetShiftsByRangeInput) {
+    validateDateRange(input.startAt, input.endAt);
 
-    return shiftRepository.findByRange(startAt, endAt);
+    return shiftRepository.findByRange(input);
   },
 
   async create(input: CreateShiftInput) {
@@ -28,6 +36,14 @@ export const shiftService = {
     await validateEmployeeExists(resolvedData.employeeId);
     await validateWorkplaceExists(resolvedData.workplaceId);
     await validateDepartmentExists(resolvedData.departmentId);
+
+    if (resolvedData.workAreaId) {
+      await validateWorkAreaExists(resolvedData.workAreaId);
+      await validateWorkAreaBelongsToDepartment(
+        resolvedData.workAreaId,
+        resolvedData.departmentId
+      );
+    }
 
     if (resolvedData.jobCategoryId) {
       await validateJobCategoryExists(resolvedData.jobCategoryId);
@@ -65,6 +81,7 @@ export const shiftService = {
       employeeId: resolvedData.employeeId,
       workplaceId: resolvedData.workplaceId,
       departmentId: resolvedData.departmentId,
+      workAreaId: resolvedData.workAreaId ?? null,
       jobCategoryId: resolvedData.jobCategoryId ?? null,
       shiftMasterId: resolvedData.shiftMasterId ?? null,
       startAt: resolvedData.startAt,
@@ -88,6 +105,14 @@ export const shiftService = {
     await validateEmployeeExists(resolvedData.employeeId);
     await validateWorkplaceExists(resolvedData.workplaceId);
     await validateDepartmentExists(resolvedData.departmentId);
+
+    if (resolvedData.workAreaId) {
+      await validateWorkAreaExists(resolvedData.workAreaId);
+      await validateWorkAreaBelongsToDepartment(
+        resolvedData.workAreaId,
+        resolvedData.departmentId
+      );
+    }
 
     if (resolvedData.jobCategoryId) {
       await validateJobCategoryExists(resolvedData.jobCategoryId);
@@ -126,6 +151,7 @@ export const shiftService = {
       employeeId: resolvedData.employeeId,
       workplaceId: resolvedData.workplaceId,
       departmentId: resolvedData.departmentId,
+      workAreaId: resolvedData.workAreaId ?? null,
       jobCategoryId: resolvedData.jobCategoryId ?? null,
       shiftMasterId: resolvedData.shiftMasterId ?? null,
       startAt: resolvedData.startAt,
@@ -148,6 +174,7 @@ export const shiftService = {
 
 async function resolveShiftCreateData(input: CreateShiftInput) {
   const employeeId = input.employeeId;
+  const workAreaId = input.workAreaId ?? null;
   const jobCategoryId = input.jobCategoryId ?? null;
   const shiftMasterId = input.shiftMasterId ?? null;
   const status = input.status ?? "BORRADOR";
@@ -173,6 +200,7 @@ async function resolveShiftCreateData(input: CreateShiftInput) {
       employeeId,
       workplaceId: shiftMaster.workplaceId,
       departmentId: shiftMaster.departmentId,
+      workAreaId: shiftMaster.workAreaId ?? null,
       jobCategoryId,
       shiftMasterId: shiftMaster.id,
       startAt,
@@ -202,6 +230,7 @@ async function resolveShiftCreateData(input: CreateShiftInput) {
     employeeId,
     workplaceId: input.workplaceId,
     departmentId: input.departmentId,
+    workAreaId,
     jobCategoryId,
     shiftMasterId: null,
     startAt: input.startAt,
@@ -237,10 +266,7 @@ async function resolveShiftUpdateData(
   if (requestedShiftMasterId) {
     const shiftMaster = await validateShiftMasterExists(requestedShiftMasterId);
 
-    const baseDate =
-      input.date ??
-      input.startAt ??
-      existingShift.startAt;
+    const baseDate = input.date ?? input.startAt ?? existingShift.startAt;
 
     const shiftDate = extractDate(baseDate);
 
@@ -255,6 +281,7 @@ async function resolveShiftUpdateData(
       employeeId: nextEmployeeId,
       workplaceId: shiftMaster.workplaceId,
       departmentId: shiftMaster.departmentId,
+      workAreaId: shiftMaster.workAreaId ?? null,
       jobCategoryId: nextJobCategoryId ?? null,
       shiftMasterId: shiftMaster.id,
       startAt: nextStartAt,
@@ -266,6 +293,10 @@ async function resolveShiftUpdateData(
 
   const nextWorkplaceId = input.workplaceId ?? existingShift.workplaceId;
   const nextDepartmentId = input.departmentId ?? existingShift.departmentId;
+  const nextWorkAreaId =
+    input.workAreaId === undefined
+      ? existingShift.workAreaId
+      : input.workAreaId;
   const nextStartAt = input.startAt ?? existingShift.startAt;
   const nextEndAt = input.endAt ?? existingShift.endAt;
 
@@ -273,6 +304,7 @@ async function resolveShiftUpdateData(
     employeeId: nextEmployeeId,
     workplaceId: nextWorkplaceId,
     departmentId: nextDepartmentId,
+    workAreaId: nextWorkAreaId ?? null,
     jobCategoryId: nextJobCategoryId ?? null,
     shiftMasterId: null,
     startAt: nextStartAt,
@@ -420,6 +452,21 @@ async function validateDepartmentExists(departmentId: string) {
   }
 }
 
+async function validateWorkAreaExists(workAreaId: string) {
+  const workArea = await prisma.workArea.findUnique({
+    where: { id: workAreaId },
+    select: { id: true, isActive: true, departmentId: true },
+  });
+
+  if (!workArea) {
+    throw new Error("La zona no existe.");
+  }
+
+  if (!workArea.isActive) {
+    throw new Error("No se puede asignar un turno en una zona inactiva.");
+  }
+}
+
 async function validateJobCategoryExists(jobCategoryId: string) {
   const jobCategory = await prisma.jobCategory.findUnique({
     where: { id: jobCategoryId },
@@ -444,6 +491,7 @@ async function validateShiftMasterExists(shiftMasterId: string) {
       id: true,
       workplaceId: true,
       departmentId: true,
+      workAreaId: true,
       startMinute: true,
       endMinute: true,
       crossesMidnight: true,
@@ -477,6 +525,24 @@ async function validateDepartmentBelongsToWorkplace(
 
   if (department.workplaceId !== workplaceId) {
     throw new Error("El departamento no pertenece al centro indicado.");
+  }
+}
+
+async function validateWorkAreaBelongsToDepartment(
+  workAreaId: string,
+  departmentId: string
+) {
+  const workArea = await prisma.workArea.findUnique({
+    where: { id: workAreaId },
+    select: { id: true, departmentId: true },
+  });
+
+  if (!workArea) {
+    throw new Error("La zona no existe.");
+  }
+
+  if (workArea.departmentId !== departmentId) {
+    throw new Error("La zona no pertenece al departamento indicado.");
   }
 }
 

@@ -8,6 +8,7 @@ export const shiftMasterRepository = {
       include: {
         workplace: true,
         department: true,
+        jobCategory: true,
       },
     });
   },
@@ -17,6 +18,7 @@ export const shiftMasterRepository = {
       include: {
         workplace: true,
         department: true,
+        jobCategory: true,
       },
       orderBy: [
         { workplace: { name: "asc" } },
@@ -32,6 +34,7 @@ export const shiftMasterRepository = {
       include: {
         workplace: true,
         department: true,
+        jobCategory: true,
       },
       orderBy: [{ department: { name: "asc" } }, { name: "asc" }],
     });
@@ -43,6 +46,7 @@ export const shiftMasterRepository = {
       include: {
         workplace: true,
         department: true,
+        jobCategory: true,
       },
       orderBy: [{ name: "asc" }],
     });
@@ -54,6 +58,7 @@ export const shiftMasterRepository = {
     description?: string | null;
     workplaceId: string;
     departmentId: string;
+    jobCategoryId?: string | null;
     type?: ShiftMasterType;
     startMinute: number;
     endMinute: number;
@@ -79,6 +84,7 @@ export const shiftMasterRepository = {
       description?: string | null;
       workplaceId?: string;
       departmentId?: string;
+      jobCategoryId?: string | null;
       type?: ShiftMasterType;
       startMinute?: number;
       endMinute?: number;

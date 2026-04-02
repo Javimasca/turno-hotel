@@ -10,7 +10,9 @@ type ListDepartmentsInput = DepartmentListFilters;
 
 type CreateDepartmentServiceInput = CreateDepartmentInput;
 
-type UpdateDepartmentServiceInput = UpdateDepartmentInput;
+type UpdateDepartmentServiceInput = UpdateDepartmentInput & {
+  jobCategoryIds?: string[];
+};
 
 function normalizeCode(value: string) {
   return value.trim().toUpperCase();
@@ -75,16 +77,26 @@ export const departmentService = {
       throw new Error("El lugar de trabajo no existe.");
     }
 
-    const existingByCode = await departmentRepository.findByCodeInWorkplace(workplaceId, code);
+    const existingByCode = await departmentRepository.findByCodeInWorkplace(
+      workplaceId,
+      code
+    );
 
     if (existingByCode) {
-      throw new Error("Ya existe un departamento con ese código en el lugar de trabajo.");
+      throw new Error(
+        "Ya existe un departamento con ese código en el lugar de trabajo."
+      );
     }
 
-    const existingByName = await departmentRepository.findByNameInWorkplace(workplaceId, name);
+    const existingByName = await departmentRepository.findByNameInWorkplace(
+      workplaceId,
+      name
+    );
 
     if (existingByName) {
-      throw new Error("Ya existe un departamento con ese nombre en el lugar de trabajo.");
+      throw new Error(
+        "Ya existe un departamento con ese nombre en el lugar de trabajo."
+      );
     }
 
     return departmentRepository.create({
@@ -103,8 +115,10 @@ export const departmentService = {
       throw new Error("El departamento no existe.");
     }
 
-    const nextCode = input.code !== undefined ? normalizeCode(input.code) : undefined;
-    const nextName = input.name !== undefined ? normalizeName(input.name) : undefined;
+    const nextCode =
+      input.code !== undefined ? normalizeCode(input.code) : undefined;
+    const nextName =
+      input.name !== undefined ? normalizeName(input.name) : undefined;
     const nextDescription = normalizeDescription(input.description);
 
     if (nextCode !== undefined && !nextCode) {
@@ -118,30 +132,87 @@ export const departmentService = {
     if (nextCode !== undefined && nextCode !== current.code) {
       const existingByCode = await departmentRepository.findByCodeInWorkplace(
         current.workplaceId,
-        nextCode,
+        nextCode
       );
 
       if (existingByCode && existingByCode.id !== id) {
-        throw new Error("Ya existe un departamento con ese código en el lugar de trabajo.");
+        throw new Error(
+          "Ya existe un departamento con ese código en el lugar de trabajo."
+        );
       }
     }
 
     if (nextName !== undefined && nextName !== current.name) {
       const existingByName = await departmentRepository.findByNameInWorkplace(
         current.workplaceId,
-        nextName,
+        nextName
       );
 
       if (existingByName && existingByName.id !== id) {
-        throw new Error("Ya existe un departamento con ese nombre en el lugar de trabajo.");
+        throw new Error(
+          "Ya existe un departamento con ese nombre en el lugar de trabajo."
+        );
       }
     }
 
-    return departmentRepository.update(id, {
-      ...(nextCode !== undefined ? { code: nextCode } : {}),
-      ...(nextName !== undefined ? { name: nextName } : {}),
-      ...(input.description !== undefined ? { description: nextDescription } : {}),
-      ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+    const uniqueJobCategoryIds =
+      input.jobCategoryIds !== undefined
+        ? [
+            ...new Set(
+              input.jobCategoryIds.map((value) => value.trim()).filter(Boolean)
+            ),
+          ]
+        : undefined;
+
+    if (uniqueJobCategoryIds !== undefined && uniqueJobCategoryIds.length > 0) {
+      const validCategories = await prisma.jobCategory.findMany({
+        where: {
+          id: { in: uniqueJobCategoryIds },
+          isActive: true,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (validCategories.length !== uniqueJobCategoryIds.length) {
+        throw new Error("Una o varias categorías profesionales no son válidas.");
+      }
+    }
+
+    return prisma.$transaction(async (tx) => {
+      const updatedDepartment = await tx.department.update({
+        where: { id },
+        data: {
+          ...(nextCode !== undefined ? { code: nextCode } : {}),
+          ...(nextName !== undefined ? { name: nextName } : {}),
+          ...(input.description !== undefined
+            ? { description: nextDescription }
+            : {}),
+          ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+        },
+      });
+
+      if (uniqueJobCategoryIds !== undefined) {
+        await tx.departmentJobCategory.deleteMany({
+          where: {
+            departmentId: id,
+          },
+        });
+
+        if (uniqueJobCategoryIds.length > 0) {
+          await tx.departmentJobCategory.createMany({
+            data: uniqueJobCategoryIds.map((jobCategoryId, index) => ({
+              departmentId: id,
+              jobCategoryId,
+              displayOrder: index,
+              isActive: true,
+            })),
+          });
+        }
+      }
+
+      return updatedDepartment;
     });
   },
 

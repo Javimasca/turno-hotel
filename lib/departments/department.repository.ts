@@ -20,6 +20,7 @@ export type UpdateDepartmentInput = {
   name?: string;
   description?: string | null;
   isActive?: boolean;
+  jobCategoryIds?: string[];
 };
 
 const departmentBaseSelect = {
@@ -50,7 +51,9 @@ export const departmentRepository = {
     return prisma.department.findMany({
       where: {
         ...(filters.workplaceId ? { workplaceId: filters.workplaceId } : {}),
-        ...(typeof filters.isActive === "boolean" ? { isActive: filters.isActive } : {}),
+        ...(typeof filters.isActive === "boolean"
+          ? { isActive: filters.isActive }
+          : {}),
       },
       select: departmentWithWorkplaceSelect,
       orderBy: [{ name: "asc" }],
@@ -103,7 +106,9 @@ export const departmentRepository = {
       data: {
         ...(data.code !== undefined ? { code: data.code } : {}),
         ...(data.name !== undefined ? { name: data.name } : {}),
-        ...(data.description !== undefined ? { description: data.description } : {}),
+        ...(data.description !== undefined
+          ? { description: data.description }
+          : {}),
         ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
       },
       select: departmentWithWorkplaceSelect,

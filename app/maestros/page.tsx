@@ -66,13 +66,22 @@ export default function MaestrosPage() {
           <span className="nav-card-link">Abrir →</span>
         </Link>
 
-        <Link href="/turnos" className="nav-card">
-          <h2 className="nav-card-title">Turnos</h2>
+        <Link href="/maestros/turnos" className="nav-card">
+          <h2 className="nav-card-title">Maestro de turnos</h2>
           <p className="nav-card-text">
-            Accedemos al módulo operativo para crear maestros de turno, asignar
-            turnos reales y activar la planificación semanal.
+            Gestionamos el catálogo base de turnos reutilizables por centro y
+            departamento.
           </p>
           <span className="nav-card-link">Abrir →</span>
+        </Link>
+
+        <Link href="/maestros/ausencias" className="nav-card">
+          <h2 className="nav-card-title">Ausencias</h2>
+          <p className="nav-card-text">
+            Gestionamos el catálogo de tipos de ausencia del sistema, como
+            vacaciones, IT, consulta médica o asuntos propios.
+          </p>
+          <span className="nav-card-link">Gestionar →</span>
         </Link>
       </section>
     </main>

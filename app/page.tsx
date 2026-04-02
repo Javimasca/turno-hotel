@@ -14,6 +14,12 @@ const mainAreas = [
       'Gestionamos fichas de trabajadores, categoría, antigüedad, parcialidad y asignaciones.',
   },
   {
+    href: '/turnos',
+    title: 'Cuadrantes',
+    description:
+      'Accedemos al cuadrante operativo para consultar y organizar turnos del personal.',
+  },
+  {
     href: '/planificacion',
     title: 'Planificación',
     description:
@@ -61,21 +67,18 @@ export default function HomePage() {
 
               <p className="hero-panel-text">
                 Construimos una aplicación interna clara, elegante y operativa
-                para organizar lugares de trabajo, departamentos, empleados y
-                planificación diaria con una estética inspirada en Puerto
-                Antilla.
+                para organizar lugares de trabajo, departamentos, empleados,
+                cuadrantes y planificación diaria con una estética inspirada en
+                Puerto Antilla.
               </p>
 
-              <div
-                className="page-actions"
-                style={{ marginTop: '24px' }}
-              >
+              <div className="page-actions" style={{ marginTop: '24px' }}>
                 <Link href="/maestros" className="button button-primary">
                   Entrar en maestros
                 </Link>
 
-                <Link href="/planificacion" className="button button-secondary">
-                  Ir a planificación
+                <Link href="/turnos" className="button button-secondary">
+                  Abrir cuadrantes
                 </Link>
               </div>
             </div>
@@ -165,6 +168,16 @@ export default function HomePage() {
                     <p style={{ margin: '12px 0 0' }}>
                       Cada trabajador tendrá su ficha con datos laborales y las
                       asignaciones que condicionan qué turnos puede realizar.
+                    </p>
+                  </div>
+
+                  <div>
+                    <span className="status-chip status-published">
+                      cuadrantes
+                    </span>
+                    <p style={{ margin: '12px 0 0' }}>
+                      El cuadrante será la vista operativa principal para
+                      organizar equipos, coberturas y turnos por periodo.
                     </p>
                   </div>
 

@@ -2,6 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { prisma } from "@/lib/prisma";
+import QueryFeedbackToast from "@/components/shared/query-feedback-toast";
+import DeleteDepartmentForm from "./delete-department-form";
+import DepartmentJobCategoriesSelect from "./department-job-categories-select";
 
 type EditDepartmentPageProps = {
   params: Promise<{
@@ -23,6 +26,11 @@ export default async function EditDepartmentPage({
       name: true,
       description: true,
       isActive: true,
+      departmentJobCategories: {
+        where: { isActive: true },
+        select: { jobCategoryId: true },
+        orderBy: { displayOrder: "asc" },
+      },
     },
   });
 
@@ -32,14 +40,29 @@ export default async function EditDepartmentPage({
 
   const workplaces = await prisma.workplace.findMany({
     orderBy: [{ name: "asc" }],
+    select: { id: true, name: true },
+  });
+
+  const jobCategories = await prisma.jobCategory.findMany({
+    where: { isActive: true },
+    orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
     select: {
       id: true,
+      code: true,
       name: true,
+      shortName: true,
+      textColor: true,
     },
   });
 
+  const initialSelectedIds = department.departmentJobCategories.map(
+    (item) => item.jobCategoryId
+  );
+
   return (
     <main className="page-shell">
+      <QueryFeedbackToast />
+
       <section className="page-header">
         <div>
           <Link href="/maestros/departamentos" className="back-link">
@@ -120,6 +143,11 @@ export default async function EditDepartmentPage({
             />
           </div>
 
+          <DepartmentJobCategoriesSelect
+            jobCategories={jobCategories}
+            initialSelectedIds={initialSelectedIds}
+          />
+
           <div className="form-actions">
             <Link
               href="/maestros/departamentos"
@@ -134,17 +162,9 @@ export default async function EditDepartmentPage({
           </div>
         </form>
 
-        <form
+        <DeleteDepartmentForm
           action={`/api/maestros/departamentos/${department.id}`}
-          method="post"
-          className="danger-zone"
-        >
-          <input type="hidden" name="_method" value="DELETE" />
-
-          <button type="submit" className="button button-danger">
-            Eliminar departamento
-          </button>
-        </form>
+        />
       </section>
     </main>
   );

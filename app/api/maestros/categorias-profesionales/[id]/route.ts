@@ -4,8 +4,6 @@ import {
   JobCategoryCodeAlreadyExistsError,
   JobCategoryNameAlreadyExistsError,
   JobCategoryNotFoundError,
-  deleteJobCategoryRecord,
-  getJobCategoryRecordById,
   updateJobCategoryRecord,
 } from '@/lib/job-categories/job-category.service'
 
@@ -15,28 +13,20 @@ type RouteContext = {
   }>
 }
 
-async function getRequestBody(request: NextRequest) {
-  const contentType = request.headers.get('content-type') ?? ''
-
-  if (contentType.includes('application/json')) {
-    return request.json()
+function parseBoolean(value: string | null) {
+  if (value === null) {
+    return undefined
   }
 
-  const formData = await request.formData()
-
-  return {
-    _method: formData.get('_method'),
-    code: formData.get('code'),
-    name: formData.get('name'),
-    shortName: formData.get('shortName'),
-    description: formData.get('description'),
-    displayOrder: formData.get('displayOrder'),
-    textColor: formData.get('textColor'),
-    isActive:
-      formData.get('isActive') === null
-        ? false
-        : formData.get('isActive') === 'true',
+  if (value === 'true') {
+    return true
   }
+
+  if (value === 'false') {
+    return false
+  }
+
+  return undefined
 }
 
 function parseInteger(value: unknown) {
@@ -55,174 +45,168 @@ function parseInteger(value: unknown) {
   return undefined
 }
 
-function buildUpdateInput(body: {
-  code?: FormDataEntryValue | null
-  name?: FormDataEntryValue | null
-  shortName?: FormDataEntryValue | null
-  description?: FormDataEntryValue | null
-  displayOrder?: FormDataEntryValue | null
-  textColor?: FormDataEntryValue | null
-  isActive?: boolean
-}) {
-  return {
-    ...(typeof body.code === 'string' ? { code: body.code.trim() } : {}),
-    ...(typeof body.name === 'string' ? { name: body.name.trim() } : {}),
-    ...(typeof body.shortName === 'string' || body.shortName === null
-      ? {
-          shortName:
-            typeof body.shortName === 'string'
-              ? body.shortName.trim() === ''
-                ? null
-                : body.shortName.trim()
-              : null,
-        }
-      : {}),
-    ...(typeof body.description === 'string' || body.description === null
-      ? {
-          description:
-            typeof body.description === 'string'
-              ? body.description.trim() === ''
-                ? null
-                : body.description.trim()
-              : null,
-        }
-      : {}),
-    ...(body.displayOrder !== undefined
-      ? { displayOrder: parseInteger(body.displayOrder) }
-      : {}),
-    ...(typeof body.textColor === 'string' || body.textColor === null
-      ? {
-          textColor:
-            typeof body.textColor === 'string'
-              ? body.textColor.trim() === ''
-                ? null
-                : body.textColor.trim()
-              : null,
-        }
-      : {}),
-    ...(typeof body.isActive === 'boolean' ? { isActive: body.isActive } : {}),
-  }
-}
-
-export async function GET(
-  _request: NextRequest,
-  context: RouteContext,
-) {
-  try {
-    const { id } = await context.params
-    const record = await getJobCategoryRecordById(id)
-
-    return NextResponse.json(record)
-  } catch (error) {
-    if (error instanceof JobCategoryNotFoundError) {
-      return NextResponse.json({ error: error.message }, { status: 404 })
-    }
-
-    const message =
-      error instanceof Error
-        ? error.message
-        : 'Categoría profesional no encontrada.'
-
-    return NextResponse.json({ error: message }, { status: 404 })
-  }
-}
-
-export async function PATCH(
+function buildEditJobCategoryUrl(
   request: NextRequest,
-  context: RouteContext,
+  id: string,
+  values: {
+    error: string
+    code?: string
+    name?: string
+    shortName?: string
+    description?: string
+    displayOrder?: string
+    textColor?: string
+    isActive?: boolean
+  },
 ) {
-  try {
-    const { id } = await context.params
-    const body = await getRequestBody(request)
+  const url = new URL(
+    `/maestros/categorias-profesionales/${id}/editar`,
+    request.url,
+  )
 
-    const updated = await updateJobCategoryRecord(id, buildUpdateInput(body))
+  url.searchParams.set('error', values.error)
 
-    return NextResponse.json(updated)
-  } catch (error) {
-    if (error instanceof JobCategoryNotFoundError) {
-      return NextResponse.json({ error: error.message }, { status: 404 })
-    }
-
-    if (
-      error instanceof JobCategoryCodeAlreadyExistsError ||
-      error instanceof JobCategoryNameAlreadyExistsError
-    ) {
-      return NextResponse.json({ error: error.message }, { status: 409 })
-    }
-
-    const message =
-      error instanceof Error
-        ? error.message
-        : 'Error al actualizar la categoría profesional.'
-
-    return NextResponse.json({ error: message }, { status: 400 })
+  if (values.code) {
+    url.searchParams.set('code', values.code)
   }
-}
 
-export async function DELETE(
-  _request: NextRequest,
-  context: RouteContext,
-) {
-  try {
-    const { id } = await context.params
-
-    await deleteJobCategoryRecord(id)
-
-    return NextResponse.json({ success: true })
-  } catch (error) {
-    if (error instanceof JobCategoryNotFoundError) {
-      return NextResponse.json({ error: error.message }, { status: 404 })
-    }
-
-    const message =
-      error instanceof Error
-        ? error.message
-        : 'Error al eliminar la categoría profesional.'
-
-    return NextResponse.json({ error: message }, { status: 400 })
+  if (values.name) {
+    url.searchParams.set('name', values.name)
   }
+
+  if (values.shortName) {
+    url.searchParams.set('shortName', values.shortName)
+  }
+
+  if (values.description) {
+    url.searchParams.set('description', values.description)
+  }
+
+  if (values.displayOrder) {
+    url.searchParams.set('displayOrder', values.displayOrder)
+  }
+
+  if (values.textColor) {
+    url.searchParams.set('textColor', values.textColor)
+  }
+
+  if (typeof values.isActive === 'boolean') {
+    url.searchParams.set('isActive', values.isActive ? 'true' : 'false')
+  }
+
+  return url
 }
 
 export async function POST(
   request: NextRequest,
   context: RouteContext,
 ) {
+  const { id } = await context.params
+  const contentType = request.headers.get('content-type') || ''
+
+  let code = ''
+  let name = ''
+  let shortName: string | null | undefined = undefined
+  let description: string | null | undefined = undefined
+  let displayOrder: number | undefined = undefined
+  let textColor: string | null | undefined = undefined
+  let isActive: boolean | undefined = undefined
+
   try {
-    const { id } = await context.params
-    const body = await getRequestBody(request)
-    const method =
-      typeof body._method === 'string' ? body._method.toUpperCase() : 'POST'
+    const formData = await request.formData()
+    const method = formData.get('_method')?.toString()
 
-    if (method === 'PATCH') {
-      const updated = await updateJobCategoryRecord(id, buildUpdateInput(body))
-
-      return NextResponse.json(updated)
+    if (method !== 'PATCH') {
+      return NextResponse.json(
+        { error: 'Método no soportado.' },
+        { status: 405 },
+      )
     }
 
-    if (method === 'DELETE') {
-      await deleteJobCategoryRecord(id)
+    code = formData.get('code')?.toString() ?? ''
+    name = formData.get('name')?.toString() ?? ''
 
-      return NextResponse.json({ success: true })
-    }
+    const shortNameValue = formData.get('shortName')?.toString()
+    shortName =
+      typeof shortNameValue === 'string' ? shortNameValue : undefined
 
-    return NextResponse.json(
-      { error: 'Método no soportado.' },
-      { status: 405 },
+    const descriptionValue = formData.get('description')?.toString()
+    description =
+      typeof descriptionValue === 'string' ? descriptionValue : undefined
+
+    displayOrder = parseInteger(
+      formData.get('displayOrder')?.toString() ?? undefined,
+    )
+
+    const textColorValue = formData.get('textColor')?.toString()
+    textColor =
+      typeof textColorValue === 'string' ? textColorValue : undefined
+
+    const isActiveValue = formData.get('isActive')?.toString() ?? null
+    isActive = parseBoolean(isActiveValue)
+
+    await updateJobCategoryRecord(id, {
+      code,
+      name,
+      shortName,
+      description,
+      displayOrder,
+      textColor,
+      isActive: isActive ?? false,
+    })
+
+    return NextResponse.redirect(
+      new URL('/maestros/categorias-profesionales', request.url),
+      { status: 303 },
     )
   } catch (error) {
-    if (error instanceof JobCategoryNotFoundError) {
-      return NextResponse.json({ error: error.message }, { status: 404 })
-    }
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'No se pudo actualizar la categoría profesional.'
 
     if (
       error instanceof JobCategoryCodeAlreadyExistsError ||
-      error instanceof JobCategoryNameAlreadyExistsError
+      error instanceof JobCategoryNameAlreadyExistsError ||
+      error instanceof JobCategoryNotFoundError
     ) {
-      return NextResponse.json({ error: error.message }, { status: 409 })
+      return NextResponse.redirect(
+        buildEditJobCategoryUrl(request, id, {
+          error: error.message,
+          code,
+          name,
+          shortName: shortName ?? undefined,
+          description: description ?? undefined,
+          displayOrder:
+            typeof displayOrder === 'number' ? String(displayOrder) : undefined,
+          textColor: textColor ?? undefined,
+          isActive,
+        }),
+        { status: 303 },
+      )
     }
 
-    const message =
-      error instanceof Error ? error.message : 'Error al procesar la solicitud.'
+    const isHtmlFormRequest =
+      contentType.includes('application/x-www-form-urlencoded') ||
+      contentType.includes('multipart/form-data') ||
+      contentType === ''
+
+    if (isHtmlFormRequest) {
+      return NextResponse.redirect(
+        buildEditJobCategoryUrl(request, id, {
+          error: message,
+          code,
+          name,
+          shortName: shortName ?? undefined,
+          description: description ?? undefined,
+          displayOrder:
+            typeof displayOrder === 'number' ? String(displayOrder) : undefined,
+          textColor: textColor ?? undefined,
+          isActive,
+        }),
+        { status: 303 },
+      )
+    }
 
     return NextResponse.json({ error: message }, { status: 400 })
   }

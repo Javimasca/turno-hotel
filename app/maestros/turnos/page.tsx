@@ -1,27 +1,53 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
-// Ajusta esta ruta según la ubicación real del componente en tu proyecto
-import ShiftMasterForm from "@/components/shift-masters/shift-master-form";
+import ShiftForm from "@/components/shifts/shift-form";
+
+type Employee = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  photoUrl: string | null;
+  isActive: boolean;
+};
+
+type WorkplaceOption = {
+  id: string;
+  name: string;
+};
+
+type DepartmentOption = {
+  id: string;
+  name: string;
+};
+
+type WorkAreaOption = {
+  id: string;
+  name: string;
+};
+
+type ShiftStatus = "BORRADOR" | "PUBLICADO" | "CANCELADO";
 type ShiftMasterType = "GENERAL" | "RESTAURANTE" | "PISOS";
 
-type ShiftMaster = {
+type Shift = {
   id: string;
-  code: string;
-  name: string;
-  description: string | null;
+  employeeId: string;
   workplaceId: string;
   departmentId: string;
-  type: ShiftMasterType;
-  startMinute: number;
-  endMinute: number;
-  crossesMidnight: boolean;
-  isPartial: boolean;
-  coversBreakfast: boolean;
-  coversLunch: boolean;
-  coversDinner: boolean;
-  countsForRoomAssignment: boolean;
-  isActive: boolean;
+  workAreaId: string | null;
+  jobCategoryId: string | null;
+  shiftMasterId: string | null;
+  startAt: string;
+  endAt: string;
+  status: ShiftStatus;
+  notes: string | null;
+  employee: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    photoUrl: string | null;
+  };
   workplace: {
     id: string;
     name: string;
@@ -30,146 +56,305 @@ type ShiftMaster = {
     id: string;
     name: string;
   };
+  workArea: {
+    id: string;
+    name: string;
+  } | null;
+  jobCategory: {
+    id: string;
+    name: string;
+    shortName: string | null;
+    textColor: string | null;
+  } | null;
+  shiftMaster: {
+    id: string;
+    code: string;
+    name: string;
+    type: ShiftMasterType;
+    backgroundColor: string | null;
+  } | null;
 };
 
-type Workplace = {
-  id: string;
-  name: string;
-  isActive: boolean;
-};
+const DAY_NAMES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
-type Department = {
-  id: string;
-  name: string;
-  workplaceId: string;
-  isActive: boolean;
-};
+export default function TurnosPage() {
+  const [currentWeekStart, setCurrentWeekStart] = useState(() =>
+    getStartOfWeek(new Date())
+  );
 
-export default function ShiftMastersPage() {
-  const [shiftMasters, setShiftMasters] = useState<ShiftMaster[]>([]);
-  const [workplaces, setWorkplaces] = useState<Workplace[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [shifts, setShifts] = useState<Shift[]>([]);
 
-  const [selectedWorkplaceId, setSelectedWorkplaceId] = useState("");
-  const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
-  const [selectedType, setSelectedType] = useState<"" | ShiftMasterType>("");
-
-  const [isShiftMasterFormOpen, setIsShiftMasterFormOpen] = useState(false);
+  const [workplaces, setWorkplaces] = useState<WorkplaceOption[]>([]);
+  const [departments, setDepartments] = useState<DepartmentOption[]>([]);
+  const [workAreas, setWorkAreas] = useState<WorkAreaOption[]>([]);
 
   const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingFilters, setIsLoadingFilters] = useState(true);
+  const [isCatalogLoading, setIsCatalogLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
 
-  const availableDepartments = useMemo(() => {
-    if (!selectedWorkplaceId) {
-      return departments;
-    }
+  const [selectedWorkplaceId, setSelectedWorkplaceId] = useState("all");
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState("all");
+  const [selectedWorkAreaId, setSelectedWorkAreaId] = useState("all");
+  const [selectedStatus, setSelectedStatus] = useState("all");
+  const [employeeSearch, setEmployeeSearch] = useState("");
 
-    return departments.filter(
-      (department) => department.workplaceId === selectedWorkplaceId
-    );
-  }, [departments, selectedWorkplaceId]);
-
-  const filteredShiftMasters = useMemo(() => {
-    return shiftMasters.filter((item) => {
-      const matchesWorkplace = selectedWorkplaceId
-        ? item.workplaceId === selectedWorkplaceId
-        : true;
-
-      const matchesDepartment = selectedDepartmentId
-        ? item.departmentId === selectedDepartmentId
-        : true;
-
-      const matchesType = selectedType ? item.type === selectedType : true;
-
-      return matchesWorkplace && matchesDepartment && matchesType;
-    });
-  }, [shiftMasters, selectedWorkplaceId, selectedDepartmentId, selectedType]);
+  const weekDays = useMemo(
+    () => Array.from({ length: 7 }, (_, index) => addDays(currentWeekStart, index)),
+    [currentWeekStart]
+  );
 
   useEffect(() => {
-    void loadInitialData();
+    void loadWorkplaces();
   }, []);
 
   useEffect(() => {
-    if (!selectedWorkplaceId) {
-      return;
-    }
+    void loadDepartments(selectedWorkplaceId);
+  }, [selectedWorkplaceId]);
 
-    const departmentStillValid = availableDepartments.some(
-      (department) => department.id === selectedDepartmentId
-    );
+  useEffect(() => {
+    void loadWorkAreas(selectedDepartmentId);
+  }, [selectedDepartmentId]);
 
-    if (!departmentStillValid) {
-      setSelectedDepartmentId("");
-    }
-  }, [selectedWorkplaceId, selectedDepartmentId, availableDepartments]);
+  useEffect(() => {
+    void loadWeekData(currentWeekStart);
+  }, [
+    currentWeekStart,
+    selectedWorkplaceId,
+    selectedDepartmentId,
+    selectedWorkAreaId,
+  ]);
 
-  async function loadInitialData() {
+  async function loadWorkplaces() {
     try {
-      setIsLoading(true);
-      setIsLoadingFilters(true);
+      setIsCatalogLoading(true);
       setError(null);
 
-      const [shiftMastersResponse, workplacesResponse, departmentsResponse] =
-        await Promise.all([
-          fetch("/api/shift-masters", { cache: "no-store" }),
-          fetch("/api/workplaces", { cache: "no-store" }),
-          fetch("/api/departments", { cache: "no-store" }),
-        ]);
+      const response = await fetch("/api/workplaces", {
+        cache: "no-store",
+      });
 
-      const shiftMastersData = await shiftMastersResponse.json();
-      const workplacesData = await workplacesResponse.json();
-      const departmentsData = await departmentsResponse.json();
-
-      if (!shiftMastersResponse.ok) {
-        throw new Error(
-          shiftMastersData.error ||
-            "No se pudieron cargar los maestros de turnos."
-        );
+      if (!response.ok) {
+        throw new Error("No se pudieron cargar los lugares de trabajo.");
       }
 
-      if (!workplacesResponse.ok) {
-        throw new Error(
-          workplacesData.error || "No se pudieron cargar los centros."
-        );
-      }
+      const data = (await response.json()) as WorkplaceOption[];
 
-      if (!departmentsResponse.ok) {
-        throw new Error(
-          departmentsData.error || "No se pudieron cargar los departamentos."
-        );
-      }
-
-      setShiftMasters(shiftMastersData as ShiftMaster[]);
       setWorkplaces(
-        (workplacesData as Workplace[])
-          .filter((workplace) => workplace.isActive)
-          .sort((a, b) => a.name.localeCompare(b.name, "es"))
-      );
-      setDepartments(
-        (departmentsData as Department[])
-          .filter((department) => department.isActive)
+        [...data]
+          .filter((item) => item.id && item.name)
           .sort((a, b) => a.name.localeCompare(b.name, "es"))
       );
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Ha ocurrido un error inesperado."
       );
+      setWorkplaces([]);
     } finally {
-      setIsLoading(false);
-      setIsLoadingFilters(false);
+      setIsCatalogLoading(false);
     }
   }
 
-  async function handleShiftMasterCreated() {
-    setIsShiftMasterFormOpen(false);
-    await loadInitialData();
+  async function loadDepartments(workplaceId: string) {
+    try {
+      setError(null);
+
+      const query =
+        workplaceId !== "all"
+          ? `?workplaceId=${encodeURIComponent(workplaceId)}`
+          : "";
+
+      const response = await fetch(`/api/departments${query}`, {
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        throw new Error("No se pudieron cargar los departamentos.");
+      }
+
+      const data = (await response.json()) as DepartmentOption[];
+
+      setDepartments(
+        [...data]
+          .filter((item) => item.id && item.name)
+          .sort((a, b) => a.name.localeCompare(b.name, "es"))
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Ha ocurrido un error inesperado."
+      );
+      setDepartments([]);
+    }
+  }
+
+  async function loadWorkAreas(departmentId: string) {
+    try {
+      setError(null);
+
+      if (departmentId === "all") {
+        setWorkAreas([]);
+        return;
+      }
+
+      const response = await fetch(
+        `/api/work-areas?departmentId=${encodeURIComponent(departmentId)}`,
+        {
+          cache: "no-store",
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("No se pudieron cargar las zonas.");
+      }
+
+      const data = (await response.json()) as WorkAreaOption[];
+
+      setWorkAreas(
+        [...data]
+          .filter((item) => item.id && item.name)
+          .sort((a, b) => a.name.localeCompare(b.name, "es"))
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Ha ocurrido un error inesperado."
+      );
+      setWorkAreas([]);
+    }
+  }
+
+  async function loadWeekData(weekStart: Date) {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      const startAt = startOfDay(weekStart);
+      const endAt = endOfDay(addDays(weekStart, 6));
+
+      const shiftParams = new URLSearchParams({
+        startAt: startAt.toISOString(),
+        endAt: endAt.toISOString(),
+      });
+
+      if (selectedWorkplaceId !== "all") {
+        shiftParams.set("workplaceId", selectedWorkplaceId);
+      }
+
+      if (selectedDepartmentId !== "all") {
+        shiftParams.set("departmentId", selectedDepartmentId);
+      }
+
+      if (selectedWorkAreaId !== "all") {
+        shiftParams.set("workAreaId", selectedWorkAreaId);
+      }
+
+      const [employeesResponse, shiftsResponse] = await Promise.all([
+        fetch("/api/employees", { cache: "no-store" }),
+        fetch(`/api/shifts?${shiftParams.toString()}`, {
+          cache: "no-store",
+        }),
+      ]);
+
+      if (!employeesResponse.ok) {
+        throw new Error("No se pudieron cargar los empleados.");
+      }
+
+      if (!shiftsResponse.ok) {
+        throw new Error("No se pudo cargar el cuadrante.");
+      }
+
+      const employeesData = (await employeesResponse.json()) as Employee[];
+      const shiftsData = (await shiftsResponse.json()) as Shift[];
+
+      setEmployees(
+        employeesData
+          .filter((employee) => employee.isActive)
+          .sort((a, b) =>
+            `${a.lastName} ${a.firstName}`.localeCompare(
+              `${b.lastName} ${b.firstName}`,
+              "es"
+            )
+          )
+      );
+
+      setShifts(shiftsData);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Ha ocurrido un error inesperado."
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  const workplaceOptions = useMemo(() => workplaces, [workplaces]);
+  const departmentOptions = useMemo(() => departments, [departments]);
+  const workAreaOptions = useMemo(() => workAreas, [workAreas]);
+
+  const filteredShifts = useMemo(() => {
+    if (selectedStatus === "all") {
+      return shifts;
+    }
+
+    return shifts.filter((shift) => shift.status === selectedStatus);
+  }, [shifts, selectedStatus]);
+
+  const filteredEmployees = useMemo(() => {
+    const normalizedSearch = employeeSearch.trim().toLocaleLowerCase("es");
+    const employeeIdsWithVisibleShifts = new Set(
+      filteredShifts.map((shift) => shift.employeeId)
+    );
+
+    return employees.filter((employee) => {
+      const fullName = `${employee.firstName} ${employee.lastName}`.toLocaleLowerCase("es");
+      const matchesSearch =
+        normalizedSearch === "" || fullName.includes(normalizedSearch);
+
+      const hasVisibleShift = employeeIdsWithVisibleShifts.has(employee.id);
+
+      if (
+        selectedWorkplaceId === "all" &&
+        selectedDepartmentId === "all" &&
+        selectedWorkAreaId === "all" &&
+        selectedStatus === "all"
+      ) {
+        return matchesSearch;
+      }
+
+      return matchesSearch && hasVisibleShift;
+    });
+  }, [
+    employees,
+    filteredShifts,
+    employeeSearch,
+    selectedWorkplaceId,
+    selectedDepartmentId,
+    selectedWorkAreaId,
+    selectedStatus,
+  ]);
+
+  function goToPreviousWeek() {
+    setCurrentWeekStart((prev) => addDays(prev, -7));
+  }
+
+  function goToNextWeek() {
+    setCurrentWeekStart((prev) => addDays(prev, 7));
+  }
+
+  function goToCurrentWeek() {
+    setCurrentWeekStart(getStartOfWeek(new Date()));
   }
 
   function resetFilters() {
-    setSelectedWorkplaceId("");
-    setSelectedDepartmentId("");
-    setSelectedType("");
+    setSelectedWorkplaceId("all");
+    setSelectedDepartmentId("all");
+    setSelectedWorkAreaId("all");
+    setSelectedStatus("all");
+    setEmployeeSearch("");
+  }
+
+  async function handleCreated() {
+    await loadWeekData(currentWeekStart);
   }
 
   return (
@@ -177,38 +362,87 @@ export default function ShiftMastersPage() {
       <div className="page-shell">
         <div className="page-header">
           <div>
-            <p className="page-eyebrow">HORION</p>
-            <h1 className="page-title">Maestro de turnos</h1>
+            <p className="page-eyebrow">TURNOHOTEL</p>
+            <h1 className="page-title">Cuadrantes</h1>
             <p className="page-subtitle">
-              Catálogo base de turnos reutilizables por centro y departamento
+              Vista semanal operativa para organizar personal y turnos por día.
             </p>
           </div>
 
-          <div className="header-actions">
-            <button className="action-button secondary" onClick={loadInitialData}>
-              Recargar
+          <div className="toolbar">
+            <button className="toolbar-button primary" onClick={() => setShowForm(true)}>
+              + Nuevo registro
             </button>
-            <button
-              className="action-button primary"
-              onClick={() => setIsShiftMasterFormOpen(true)}
-            >
-              + Nuevo maestro
+
+            <button className="toolbar-button secondary" onClick={goToPreviousWeek}>
+              ← Semana anterior
+            </button>
+
+            <button className="toolbar-button secondary" onClick={goToCurrentWeek}>
+              Semana actual
+            </button>
+
+            <button className="toolbar-button secondary" onClick={goToNextWeek}>
+              Semana siguiente →
             </button>
           </div>
         </div>
 
+        <div className="week-range-card">
+          <div>
+            <span className="week-range-label">Cuadrante semanal</span>
+            <strong className="week-range-value">
+              {formatLongDate(weekDays[0])} — {formatLongDate(weekDays[6])}
+            </strong>
+          </div>
+
+          <div className="week-summary">
+            <div className="summary-item">
+              <span className="summary-value">{filteredEmployees.length}</span>
+              <span className="summary-label">empleados</span>
+            </div>
+            <div className="summary-item">
+              <span className="summary-value">{filteredShifts.length}</span>
+              <span className="summary-label">registros</span>
+            </div>
+          </div>
+        </div>
+
         <div className="filters-card">
+          <div className="filters-header">
+            <div>
+              <h2 className="filters-title">Filtros del cuadrante</h2>
+              <p className="filters-subtitle">
+                Acota la vista por centro, departamento, zona, estado o empleado.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              className="toolbar-button ghost"
+              onClick={resetFilters}
+            >
+              Limpiar filtros
+            </button>
+          </div>
+
           <div className="filters-grid">
-            <div className="field">
-              <label htmlFor="workplaceId">Centro</label>
+            <div className="filter-field">
+              <label htmlFor="workplaceFilter">Lugar de trabajo</label>
               <select
-                id="workplaceId"
+                id="workplaceFilter"
                 value={selectedWorkplaceId}
-                onChange={(event) => setSelectedWorkplaceId(event.target.value)}
-                disabled={isLoadingFilters}
+                onChange={(event) => {
+                  setSelectedWorkplaceId(event.target.value);
+                  setSelectedDepartmentId("all");
+                  setSelectedWorkAreaId("all");
+                  setDepartments([]);
+                  setWorkAreas([]);
+                }}
+                disabled={isCatalogLoading}
               >
-                <option value="">Todos los centros</option>
-                {workplaces.map((workplace) => (
+                <option value="all">Todos</option>
+                {workplaceOptions.map((workplace) => (
                   <option key={workplace.id} value={workplace.id}>
                     {workplace.name}
                   </option>
@@ -216,16 +450,20 @@ export default function ShiftMastersPage() {
               </select>
             </div>
 
-            <div className="field">
-              <label htmlFor="departmentId">Departamento</label>
+            <div className="filter-field">
+              <label htmlFor="departmentFilter">Departamento</label>
               <select
-                id="departmentId"
+                id="departmentFilter"
                 value={selectedDepartmentId}
-                onChange={(event) => setSelectedDepartmentId(event.target.value)}
-                disabled={isLoadingFilters}
+                onChange={(event) => {
+                  setSelectedDepartmentId(event.target.value);
+                  setSelectedWorkAreaId("all");
+                  setWorkAreas([]);
+                }}
+                disabled={isCatalogLoading}
               >
-                <option value="">Todos los departamentos</option>
-                {availableDepartments.map((department) => (
+                <option value="all">Todos</option>
+                {departmentOptions.map((department) => (
                   <option key={department.id} value={department.id}>
                     {department.name}
                   </option>
@@ -233,40 +471,51 @@ export default function ShiftMastersPage() {
               </select>
             </div>
 
-            <div className="field">
-              <label htmlFor="type">Tipo</label>
+            <div className="filter-field">
+              <label htmlFor="workAreaFilter">Zona</label>
               <select
-                id="type"
-                value={selectedType}
-                onChange={(event) =>
-                  setSelectedType(event.target.value as "" | ShiftMasterType)
-                }
-                disabled={isLoadingFilters}
+                id="workAreaFilter"
+                value={selectedWorkAreaId}
+                onChange={(event) => setSelectedWorkAreaId(event.target.value)}
+                disabled={selectedDepartmentId === "all"}
               >
-                <option value="">Todos los tipos</option>
-                <option value="GENERAL">General</option>
-                <option value="RESTAURANTE">Restaurante</option>
-                <option value="PISOS">Pisos</option>
+                <option value="all">
+                  {selectedDepartmentId === "all"
+                    ? "Selecciona un departamento"
+                    : "Todas"}
+                </option>
+                {workAreaOptions.map((workArea) => (
+                  <option key={workArea.id} value={workArea.id}>
+                    {workArea.name}
+                  </option>
+                ))}
               </select>
             </div>
 
-            <div className="field actions-field">
-              <label>&nbsp;</label>
-              <button className="reset-button" onClick={resetFilters}>
-                Limpiar filtros
-              </button>
+            <div className="filter-field">
+              <label htmlFor="statusFilter">Estado</label>
+              <select
+                id="statusFilter"
+                value={selectedStatus}
+                onChange={(event) => setSelectedStatus(event.target.value)}
+              >
+                <option value="all">Todos</option>
+                <option value="BORRADOR">Borrador</option>
+                <option value="PUBLICADO">Publicado</option>
+                <option value="CANCELADO">Cancelado</option>
+              </select>
             </div>
-          </div>
-        </div>
 
-        <div className="summary-card">
-          <div className="summary-item">
-            <span className="summary-value">{shiftMasters.length}</span>
-            <span className="summary-label">total</span>
-          </div>
-          <div className="summary-item">
-            <span className="summary-value">{filteredShiftMasters.length}</span>
-            <span className="summary-label">visibles</span>
+            <div className="filter-field employee-search-field">
+              <label htmlFor="employeeSearch">Empleado</label>
+              <input
+                id="employeeSearch"
+                type="text"
+                placeholder="Buscar por nombre o apellidos"
+                value={employeeSearch}
+                onChange={(event) => setEmployeeSearch(event.target.value)}
+              />
+            </div>
           </div>
         </div>
 
@@ -278,130 +527,52 @@ export default function ShiftMastersPage() {
 
         {isLoading ? (
           <div className="state-card">
-            <p>Cargando maestros de turnos...</p>
-          </div>
-        ) : filteredShiftMasters.length === 0 ? (
-          <div className="state-card">
-            <p>No hay maestros de turnos para mostrar.</p>
+            <p>Cargando cuadrante semanal...</p>
           </div>
         ) : (
-          <div className="table-card">
-            <div className="table-scroll">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Código</th>
-                    <th>Nombre</th>
-                    <th>Centro</th>
-                    <th>Departamento</th>
-                    <th>Tipo</th>
-                    <th>Horario</th>
-                    <th>Parcial</th>
-                    <th>Restaurante</th>
-                    <th>Pisos</th>
-                    <th>Activo</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredShiftMasters.map((item) => (
-                    <tr key={item.id}>
-                      <td>
-                        <span className="code-badge">{item.code}</span>
-                      </td>
+          <div className="planner-card">
+            <div className="planner-grid">
+              <div className="planner-corner">Empleado</div>
 
-                      <td>
-                        <div className="name-cell">
-                          <strong>{item.name}</strong>
-                          {item.description ? (
-                            <span>{item.description}</span>
-                          ) : null}
-                        </div>
-                      </td>
+              {weekDays.map((day, index) => (
+                <div key={day.toISOString()} className="planner-day-header">
+                  <span className="planner-day-name">{DAY_NAMES[index]}</span>
+                  <span className="planner-day-date">{formatDayNumber(day)}</span>
+                </div>
+              ))}
 
-                      <td>{item.workplace.name}</td>
-                      <td>{item.department.name}</td>
-
-                      <td>
-                        <span className={`type-badge ${item.type.toLowerCase()}`}>
-                          {formatType(item.type)}
-                        </span>
-                      </td>
-
-                      <td>
-                        <div className="schedule-cell">
-                          <strong>
-                            {formatMinute(item.startMinute)} -{" "}
-                            {formatMinute(item.endMinute)}
-                          </strong>
-                          {item.crossesMidnight ? (
-                            <span>Cruza medianoche</span>
-                          ) : null}
-                        </div>
-                      </td>
-
-                      <td>
-                        <BooleanBadge
-                          value={item.isPartial}
-                          trueLabel="Sí"
-                          falseLabel="No"
-                        />
-                      </td>
-
-                      <td>
-                        {item.type === "RESTAURANTE" ? (
-                          <div className="flag-stack">
-                            <MiniFlag
-                              active={item.coversBreakfast}
-                              label="Desayuno"
-                            />
-                            <MiniFlag active={item.coversLunch} label="Almuerzo" />
-                            <MiniFlag active={item.coversDinner} label="Cena" />
-                          </div>
-                        ) : (
-                          <span className="muted">—</span>
-                        )}
-                      </td>
-
-                      <td>
-                        {item.type === "PISOS" ? (
-                          <BooleanBadge
-                            value={item.countsForRoomAssignment}
-                            trueLabel="Cuenta"
-                            falseLabel="No cuenta"
-                          />
-                        ) : (
-                          <span className="muted">—</span>
-                        )}
-                      </td>
-
-                      <td>
-                        <BooleanBadge
-                          value={item.isActive}
-                          trueLabel="Activo"
-                          falseLabel="Inactivo"
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              {filteredEmployees.map((employee) => (
+                <WeeklyEmployeeRow
+                  key={employee.id}
+                  employee={employee}
+                  weekDays={weekDays}
+                  shifts={filteredShifts.filter((shift) => shift.employeeId === employee.id)}
+                />
+              ))}
             </div>
           </div>
         )}
+
+        {!isLoading && !error && filteredEmployees.length === 0 ? (
+          <div className="state-card">
+            <p>No hay resultados para los filtros seleccionados.</p>
+          </div>
+        ) : null}
       </div>
 
-      <ShiftMasterForm
-        open={isShiftMasterFormOpen}
-        onOpenChange={setIsShiftMasterFormOpen}
-        onSuccess={handleShiftMasterCreated}
-      />
+      {showForm ? (
+        <ShiftForm
+          onClose={() => setShowForm(false)}
+          onCreated={handleCreated}
+        />
+      ) : null}
 
       <style jsx>{`
         .page-shell {
-          padding: 24px;
+          padding: 16px;
           display: flex;
           flex-direction: column;
-          gap: 20px;
+          gap: 16px;
           background: #f6f8fc;
           min-height: 100%;
         }
@@ -410,13 +581,13 @@ export default function ShiftMastersPage() {
           display: flex;
           justify-content: space-between;
           align-items: flex-start;
-          gap: 16px;
+          gap: 12px;
           flex-wrap: wrap;
         }
 
         .page-eyebrow {
-          margin: 0 0 6px 0;
-          font-size: 12px;
+          margin: 0 0 4px 0;
+          font-size: 11px;
           font-weight: 700;
           letter-spacing: 0.08em;
           text-transform: uppercase;
@@ -425,117 +596,101 @@ export default function ShiftMastersPage() {
 
         .page-title {
           margin: 0;
-          font-size: 32px;
+          font-size: 24px;
           line-height: 1.1;
           font-weight: 800;
           color: #0f172a;
         }
 
         .page-subtitle {
-          margin: 8px 0 0 0;
+          margin: 6px 0 0 0;
           color: #475569;
-          font-size: 14px;
+          font-size: 12px;
         }
 
-        .header-actions {
+        .toolbar {
           display: flex;
-          gap: 10px;
+          gap: 8px;
           flex-wrap: wrap;
         }
 
-        .action-button {
+        .toolbar-button {
           border: none;
-          border-radius: 12px;
-          padding: 10px 14px;
-          font-size: 14px;
-          font-weight: 700;
+          border-radius: 10px;
+          padding: 8px 10px;
+          font-size: 12px;
+          font-weight: 600;
           cursor: pointer;
           transition: transform 0.15s ease, opacity 0.15s ease;
         }
 
-        .action-button:hover {
+        .toolbar-button:hover {
           transform: translateY(-1px);
         }
 
-        .action-button:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-          transform: none;
-        }
-
-        .action-button.primary {
+        .toolbar-button.primary {
           background: #b7791f;
           color: white;
         }
 
-        .action-button.secondary {
+        .toolbar-button.secondary {
           background: #0f172a;
           color: white;
         }
 
-        .filters-card,
-        .summary-card,
-        .table-card,
-        .state-card {
-          background: white;
-          border: 1px solid #e2e8f0;
-          border-radius: 18px;
-          box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
-        }
-
-        .filters-card {
-          padding: 18px 20px;
-        }
-
-        .filters-grid {
-          display: grid;
-          grid-template-columns: repeat(4, minmax(0, 1fr));
-          gap: 16px;
-        }
-
-        .field {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .actions-field {
-          justify-content: flex-end;
-        }
-
-        label {
-          font-size: 13px;
-          font-weight: 700;
-          color: #334155;
-        }
-
-        select,
-        .reset-button {
-          width: 100%;
-          border: 1px solid #dbe4f0;
-          border-radius: 12px;
-          padding: 12px 14px;
-          font-size: 14px;
-          background: white;
+        .toolbar-button.ghost {
+          background: #e2e8f0;
           color: #0f172a;
         }
 
-        .reset-button {
-          background: #f8fafc;
-          font-weight: 700;
-          cursor: pointer;
+        .toolbar-button:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+          transform: none;
         }
 
-        .summary-card {
-          padding: 16px 20px;
+        .week-range-card,
+        .planner-card,
+        .state-card,
+        .filters-card {
+          background: white;
+          border: 1px solid #e2e8f0;
+          border-radius: 16px;
+          box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+        }
+
+        .week-range-card {
+          padding: 14px 16px;
           display: flex;
+          align-items: center;
+          justify-content: space-between;
           gap: 12px;
+          flex-wrap: wrap;
+        }
+
+        .week-range-label {
+          display: block;
+          font-size: 11px;
+          font-weight: 700;
+          text-transform: uppercase;
+          color: #64748b;
+          margin-bottom: 4px;
+        }
+
+        .week-range-value {
+          font-size: 14px;
+          color: #0f172a;
+        }
+
+        .week-summary {
+          display: flex;
+          gap: 8px;
         }
 
         .summary-item {
-          min-width: 100px;
-          padding: 10px 12px;
-          border-radius: 14px;
+          min-width: 72px;
+          padding: 8px 10px;
+          border-radius: 12px;
           background: #f8fafc;
           border: 1px solid #e2e8f0;
           text-align: center;
@@ -543,20 +698,92 @@ export default function ShiftMastersPage() {
 
         .summary-value {
           display: block;
-          font-size: 20px;
+          font-size: 18px;
           font-weight: 800;
           color: #0f172a;
         }
 
         .summary-label {
           display: block;
-          margin-top: 4px;
+          font-size: 11px;
+          color: #64748b;
+          margin-top: 2px;
+        }
+
+        .filters-card {
+          padding: 16px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .filters-header {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+
+        .filters-title {
+          margin: 0;
+          font-size: 16px;
+          font-weight: 800;
+          color: #0f172a;
+        }
+
+        .filters-subtitle {
+          margin: 4px 0 0 0;
           font-size: 12px;
           color: #64748b;
         }
 
+        .filters-grid {
+          display: grid;
+          grid-template-columns: repeat(5, minmax(110px, 1fr));
+          gap: 10px;
+        }
+
+        .filter-field {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          min-width: 0;
+        }
+
+        .filter-field label {
+          font-size: 11px;
+          font-weight: 700;
+          color: #334155;
+        }
+
+        .filter-field select,
+        .filter-field input {
+          width: 100%;
+          border: 1px solid #cbd5e1;
+          border-radius: 10px;
+          padding: 8px 10px;
+          font-size: 12px;
+          color: #0f172a;
+          background: white;
+          outline: none;
+          min-width: 0;
+        }
+
+        .filter-field select:focus,
+        .filter-field input:focus {
+          border-color: #b7791f;
+          box-shadow: 0 0 0 3px rgba(183, 121, 31, 0.12);
+        }
+
+        .filter-field select:disabled {
+          background: #f8fafc;
+          color: #94a3b8;
+          cursor: not-allowed;
+        }
+
         .state-card {
-          padding: 24px;
+          padding: 18px;
         }
 
         .state-card.error {
@@ -565,221 +792,441 @@ export default function ShiftMastersPage() {
           color: #991b1b;
         }
 
-        .table-card {
-          overflow: hidden;
+        .planner-card {
+          overflow-x: hidden;
+          overflow-y: auto;
         }
 
-        .table-scroll {
-          overflow: auto;
-        }
-
-        .table {
+        .planner-grid {
+          display: grid;
+          grid-template-columns: 110px repeat(7, minmax(0, 1fr));
           width: 100%;
-          min-width: 1280px;
-          border-collapse: collapse;
         }
 
-        .table th,
-        .table td {
-          padding: 14px 16px;
-          text-align: left;
-          border-bottom: 1px solid #e2e8f0;
-          vertical-align: top;
+        .planner-corner,
+        .planner-day-header,
+        .employee-cell,
+        .day-cell {
+          min-width: 0;
         }
 
-        .table th {
+        .planner-corner {
+          position: sticky;
+          left: 0;
+          z-index: 3;
           background: #0f172a;
           color: white;
-          font-size: 12px;
+          padding: 10px 8px;
+          font-size: 11px;
+          font-weight: 700;
+          border-right: 1px solid #1e293b;
+        }
+
+        .planner-day-header {
+          background: #0f172a;
+          color: white;
+          padding: 10px 6px;
+          border-left: 1px solid #1e293b;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          align-items: center;
+          text-align: center;
+        }
+
+        .planner-day-name {
+          font-size: 10px;
           text-transform: uppercase;
-          letter-spacing: 0.06em;
+          letter-spacing: 0.04em;
+          color: #cbd5e1;
+        }
+
+        .planner-day-date {
+          font-size: 16px;
           font-weight: 800;
         }
 
-        .name-cell {
+        @media (max-width: 1200px) {
+          .planner-card {
+            overflow-x: auto;
+          }
+
+          .planner-grid {
+            min-width: 900px;
+          }
+        }
+
+        @media (max-width: 900px) {
+          .filters-grid {
+            grid-template-columns: repeat(2, minmax(120px, 1fr));
+          }
+
+          .planner-grid {
+            min-width: 840px;
+          }
+        }
+
+        @media (max-width: 640px) {
+          .filters-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .week-summary {
+            width: 100%;
+          }
+
+          .summary-item {
+            flex: 1;
+          }
+        }
+      `}</style>
+    </>
+  );
+}
+
+type WeeklyEmployeeRowProps = {
+  employee: Employee;
+  weekDays: Date[];
+  shifts: Shift[];
+};
+
+function WeeklyEmployeeRow({
+  employee,
+  weekDays,
+  shifts,
+}: WeeklyEmployeeRowProps) {
+  return (
+    <>
+      <div className="employee-cell">
+        <div className="employee-info">
+          <div className="employee-avatar">
+            {employee.photoUrl ? (
+              <Image
+                src={employee.photoUrl}
+                alt={`${employee.firstName} ${employee.lastName}`}
+                fill
+                sizes="28px"
+              />
+            ) : (
+              <span>{getInitials(employee.firstName, employee.lastName)}</span>
+            )}
+          </div>
+
+          <div className="employee-text">
+            <strong title={`${employee.firstName} ${employee.lastName}`}>
+              {employee.firstName} {employee.lastName}
+            </strong>
+          </div>
+        </div>
+      </div>
+
+      {weekDays.map((day) => {
+        const dayShifts = shifts
+          .filter((shift) => isSameDay(new Date(shift.startAt), day))
+          .sort(
+            (a, b) =>
+              new Date(a.startAt).getTime() - new Date(b.startAt).getTime()
+          );
+
+        return (
+          <div key={`${employee.id}-${day.toISOString()}`} className="day-cell">
+            {dayShifts.length === 0 ? (
+              <div className="empty-day">—</div>
+            ) : (
+              <div className="shift-list">
+                {dayShifts.map((shift) => (
+                  <div
+                    key={shift.id}
+                    className={`shift-card ${shift.status.toLowerCase()}`}
+                    style={{
+                      background:
+                        shift.shiftMaster?.backgroundColor ||
+                        getStatusBackground(shift.status),
+                    }}
+                  >
+                    <div className="shift-card-top">
+                      <div className="shift-time">
+                        {formatTime(shift.startAt)} - {formatTime(shift.endAt)}
+                      </div>
+
+                      {shift.shiftMaster ? (
+                        <span className={`shift-type ${shift.shiftMaster.type.toLowerCase()}`}>
+                          {formatType(shift.shiftMaster.type)}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <div
+                      className="shift-master-name"
+                      title={shift.shiftMaster?.name || "Turno manual"}
+                    >
+                      {shift.shiftMaster?.name || "Turno manual"}
+                    </div>
+
+                    <div
+                      className="shift-meta"
+                      title={`${shift.department.name}${shift.workArea?.name ? ` · ${shift.workArea.name}` : ""}`}
+                    >
+                      {shift.department.name}
+                      {shift.workArea?.name ? ` · ${shift.workArea.name}` : ""}
+                    </div>
+
+                    <div className="shift-workplace" title={shift.workplace.name}>
+                      {shift.workplace.name}
+                    </div>
+
+                    {shift.notes ? (
+                      <div className="shift-notes" title={shift.notes}>
+                        {shift.notes}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      <style jsx>{`
+        .employee-cell {
+          position: sticky;
+          left: 0;
+          z-index: 2;
+          background: white;
+          border-top: 1px solid #e2e8f0;
+          border-right: 1px solid #e2e8f0;
+          padding: 8px 6px;
+        }
+
+        .employee-info {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          min-width: 0;
+        }
+
+        .employee-avatar {
+          width: 28px;
+          height: 28px;
+          min-width: 28px;
+          border-radius: 999px;
+          overflow: hidden;
+          position: relative;
+          background: #dbeafe;
+          color: #1e3a8a;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 9px;
+          font-weight: 800;
+        }
+
+        .employee-text {
+          min-width: 0;
+          flex: 1;
+        }
+
+        .employee-text strong {
+          display: block;
+          font-size: 11px;
+          color: #0f172a;
+          line-height: 1.2;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .day-cell {
+          min-height: 84px;
+          padding: 4px;
+          border-top: 1px solid #e2e8f0;
+          border-left: 1px solid #e2e8f0;
+          background: #ffffff;
+        }
+
+        .empty-day {
+          height: 100%;
+          min-height: 74px;
+          border: 1px dashed #dbe4f0;
+          border-radius: 10px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #94a3b8;
+          font-size: 14px;
+        }
+
+        .shift-list {
           display: flex;
           flex-direction: column;
           gap: 4px;
         }
 
-        .name-cell strong {
-          color: #0f172a;
-          font-size: 14px;
+        .shift-card {
+          border-radius: 10px;
+          padding: 5px 6px;
+          border: 1px solid #e2e8f0;
+          background: #f8fafc;
+          overflow: hidden;
         }
 
-        .name-cell span {
-          color: #64748b;
-          font-size: 12px;
+        .shift-card.borrador {
+          border-color: #fcd34d;
         }
 
-        .code-badge {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          padding: 6px 10px;
-          border-radius: 999px;
-          background: #eff6ff;
-          border: 1px solid #bfdbfe;
-          color: #1d4ed8;
-          font-size: 12px;
+        .shift-card.publicado {
+          border-color: #93c5fd;
+        }
+
+        .shift-card.cancelado {
+          border-color: #fecaca;
+          opacity: 0.8;
+        }
+
+        .shift-card-top {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 4px;
+        }
+
+        .shift-time {
+          font-size: 10px;
           font-weight: 800;
+          color: #0f172a;
+          line-height: 1.1;
         }
 
-        .type-badge {
+        .shift-type {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          padding: 6px 10px;
+          padding: 2px 5px;
           border-radius: 999px;
-          font-size: 12px;
+          font-size: 8px;
           font-weight: 800;
           border: 1px solid transparent;
+          white-space: nowrap;
         }
 
-        .type-badge.general {
-          background: #f8fafc;
+        .shift-type.general {
+          background: rgba(255, 255, 255, 0.7);
           border-color: #cbd5e1;
           color: #334155;
         }
 
-        .type-badge.restaurante {
-          background: #fff8e6;
+        .shift-type.restaurante {
+          background: rgba(255, 248, 230, 0.85);
           border-color: #fcd34d;
           color: #92400e;
         }
 
-        .type-badge.pisos {
-          background: #ecfeff;
+        .shift-type.pisos {
+          background: rgba(236, 254, 255, 0.85);
           border-color: #a5f3fc;
           color: #155e75;
         }
 
-        .schedule-cell {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
+        .shift-master-name,
+        .shift-meta,
+        .shift-workplace,
+        .shift-notes {
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
-        .schedule-cell strong {
+        .shift-master-name {
+          margin-top: 4px;
+          font-size: 10px;
+          font-weight: 700;
           color: #0f172a;
-          font-size: 14px;
+          line-height: 1.1;
         }
 
-        .schedule-cell span {
+        .shift-meta {
+          margin-top: 3px;
+          font-size: 9px;
+          color: #334155;
+          line-height: 1.1;
+        }
+
+        .shift-workplace {
+          margin-top: 3px;
+          font-size: 9px;
           color: #64748b;
-          font-size: 12px;
+          line-height: 1.1;
         }
 
-        .flag-stack {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 6px;
-        }
-
-        .muted {
-          color: #94a3b8;
-        }
-
-        @media (max-width: 1100px) {
-          .filters-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-        }
-
-        @media (max-width: 700px) {
-          .page-shell {
-            padding: 16px;
-          }
-
-          .page-title {
-            font-size: 26px;
-          }
-
-          .filters-grid {
-            grid-template-columns: 1fr;
-          }
-        }
-      `}</style>
-    </>
-  );
-}
-
-function BooleanBadge({
-  value,
-  trueLabel,
-  falseLabel,
-}: {
-  value: boolean;
-  trueLabel: string;
-  falseLabel: string;
-}) {
-  return (
-    <>
-      <span className={`badge ${value ? "true" : "false"}`}>
-        {value ? trueLabel : falseLabel}
-      </span>
-
-      <style jsx>{`
-        .badge {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          padding: 6px 10px;
-          border-radius: 999px;
-          font-size: 12px;
-          font-weight: 800;
-          border: 1px solid transparent;
-          white-space: nowrap;
-        }
-
-        .badge.true {
-          background: #ecfdf5;
-          border-color: #86efac;
-          color: #166534;
-        }
-
-        .badge.false {
-          background: #f8fafc;
-          border-color: #cbd5e1;
+        .shift-notes {
+          margin-top: 3px;
+          font-size: 9px;
           color: #475569;
+          line-height: 1.1;
         }
       `}</style>
     </>
   );
 }
 
-function MiniFlag({ active, label }: { active: boolean; label: string }) {
+function getStartOfWeek(date: Date) {
+  const result = new Date(date);
+  const day = result.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+
+  result.setDate(result.getDate() + diff);
+  result.setHours(0, 0, 0, 0);
+
+  return result;
+}
+
+function addDays(date: Date, days: number) {
+  const result = new Date(date);
+  result.setDate(result.getDate() + days);
+  return result;
+}
+
+function startOfDay(date: Date) {
+  const result = new Date(date);
+  result.setHours(0, 0, 0, 0);
+  return result;
+}
+
+function endOfDay(date: Date) {
+  const result = new Date(date);
+  result.setHours(23, 59, 59, 999);
+  return result;
+}
+
+function isSameDay(a: Date, b: Date) {
   return (
-    <>
-      <span className={`flag ${active ? "active" : "inactive"}`}>{label}</span>
-
-      <style jsx>{`
-        .flag {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          padding: 4px 8px;
-          border-radius: 999px;
-          font-size: 11px;
-          font-weight: 800;
-          border: 1px solid transparent;
-          white-space: nowrap;
-        }
-
-        .flag.active {
-          background: #fff7ed;
-          border-color: #fdba74;
-          color: #9a3412;
-        }
-
-        .flag.inactive {
-          background: #f8fafc;
-          border-color: #e2e8f0;
-          color: #94a3b8;
-        }
-      `}</style>
-    </>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
   );
+}
+
+function formatLongDate(date: Date) {
+  return new Intl.DateTimeFormat("es-ES", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  }).format(date);
+}
+
+function formatDayNumber(date: Date) {
+  return new Intl.DateTimeFormat("es-ES", {
+    day: "2-digit",
+    month: "2-digit",
+  }).format(date);
+}
+
+function formatTime(value: string) {
+  return new Intl.DateTimeFormat("es-ES", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 function formatType(type: ShiftMasterType) {
@@ -795,9 +1242,19 @@ function formatType(type: ShiftMasterType) {
   }
 }
 
-function formatMinute(value: number) {
-  const hours = Math.floor(value / 60);
-  const minutes = value % 60;
+function getInitials(firstName: string, lastName: string) {
+  return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
+}
 
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+function getStatusBackground(status: ShiftStatus) {
+  switch (status) {
+    case "BORRADOR":
+      return "#fff8e6";
+    case "PUBLICADO":
+      return "#eff6ff";
+    case "CANCELADO":
+      return "#fff1f2";
+    default:
+      return "#f8fafc";
+  }
 }

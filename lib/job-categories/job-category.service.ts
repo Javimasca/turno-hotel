@@ -1,3 +1,5 @@
+import { Prisma } from '@prisma/client'
+
 import {
   createJobCategory,
   deleteJobCategory,
@@ -50,6 +52,15 @@ export class JobCategoryNameAlreadyExistsError extends Error {
   constructor() {
     super('Ya existe una categoría profesional con ese nombre.')
     this.name = 'JobCategoryNameAlreadyExistsError'
+  }
+}
+
+export class JobCategoryInUseError extends Error {
+  constructor() {
+    super(
+      'No se puede eliminar la categoría profesional porque está asignada a uno o más trabajadores.',
+    )
+    this.name = 'JobCategoryInUseError'
   }
 }
 
@@ -217,5 +228,16 @@ export async function deleteJobCategoryRecord(id: string) {
     throw new JobCategoryNotFoundError()
   }
 
-  return deleteJobCategory(id)
+  try {
+    return await deleteJobCategory(id)
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2003'
+    ) {
+      throw new JobCategoryInUseError()
+    }
+
+    throw error
+  }
 }

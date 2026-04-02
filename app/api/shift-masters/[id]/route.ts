@@ -43,8 +43,6 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       endMinute: body.endMinute,
       crossesMidnight: body.crossesMidnight,
       isPartial: body.isPartial,
-      backgroundColor:
-        body.backgroundColor === undefined ? undefined : body.backgroundColor,
       coversBreakfast: body.coversBreakfast,
       coversLunch: body.coversLunch,
       coversDinner: body.coversDinner,

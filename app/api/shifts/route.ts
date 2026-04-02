@@ -7,6 +7,9 @@ export async function GET(request: NextRequest) {
 
     const startAtParam = searchParams.get("startAt");
     const endAtParam = searchParams.get("endAt");
+    const workplaceId = searchParams.get("workplaceId") || undefined;
+    const departmentId = searchParams.get("departmentId") || undefined;
+    const workAreaId = searchParams.get("workAreaId") || undefined;
 
     if (!startAtParam || !endAtParam) {
       return NextResponse.json(
@@ -18,7 +21,13 @@ export async function GET(request: NextRequest) {
     const startAt = new Date(startAtParam);
     const endAt = new Date(endAtParam);
 
-    const shifts = await shiftService.getByRange(startAt, endAt);
+    const shifts = await shiftService.getByRange({
+      startAt,
+      endAt,
+      workplaceId,
+      departmentId,
+      workAreaId,
+    });
 
     return NextResponse.json(shifts);
   } catch (error) {
@@ -34,6 +43,7 @@ export async function POST(request: NextRequest) {
       employeeId: body.employeeId,
       workplaceId: body.workplaceId,
       departmentId: body.departmentId,
+      workAreaId: body.workAreaId ?? null,
       jobCategoryId: body.jobCategoryId ?? null,
       shiftMasterId: body.shiftMasterId ?? null,
       date: body.date ? new Date(body.date) : undefined,

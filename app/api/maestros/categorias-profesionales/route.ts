@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import {
   JobCategoryCodeAlreadyExistsError,
+  JobCategoryInUseError,
   JobCategoryNameAlreadyExistsError,
+  JobCategoryNotFoundError,
   createJobCategoryRecord,
+  deleteJobCategoryRecord,
   listJobCategoryRecords,
 } from '@/lib/job-categories/job-category.service'
 
@@ -140,6 +143,47 @@ export async function POST(request: NextRequest) {
       isActive = typeof body.isActive === 'boolean' ? body.isActive : undefined
     } else {
       const formData = await request.formData()
+      const method = formData.get('_method')?.toString()
+
+      if (method === 'DELETE') {
+        const id = formData.get('id')?.toString() ?? ''
+
+        if (!id) {
+          const url = new URL('/maestros/categorias-profesionales', request.url)
+          url.searchParams.set(
+            'error',
+            'El id de la categoría es obligatorio.',
+          )
+
+          return NextResponse.redirect(url, { status: 303 })
+        }
+
+        try {
+          await deleteJobCategoryRecord(id)
+
+          return NextResponse.redirect(
+            new URL('/maestros/categorias-profesionales', request.url),
+            { status: 303 },
+          )
+        } catch (error) {
+          if (error instanceof JobCategoryNotFoundError) {
+            return NextResponse.redirect(
+              new URL('/maestros/categorias-profesionales', request.url),
+              { status: 303 },
+            )
+          }
+
+          const message =
+            error instanceof Error
+              ? error.message
+              : 'No se pudo eliminar la categoría profesional.'
+
+          const url = new URL('/maestros/categorias-profesionales', request.url)
+          url.searchParams.set('error', message)
+
+          return NextResponse.redirect(url, { status: 303 })
+        }
+      }
 
       code = formData.get('code')?.toString() ?? ''
       name = formData.get('name')?.toString() ?? ''
@@ -186,7 +230,7 @@ export async function POST(request: NextRequest) {
     const message =
       error instanceof Error
         ? error.message
-        : 'Error al crear la categoría profesional.'
+        : 'Error al procesar la categoría profesional.'
 
     const isHtmlFormRequest =
       contentType.includes('application/x-www-form-urlencoded') ||
@@ -215,6 +259,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (error instanceof JobCategoryNameAlreadyExistsError) {
+      return NextResponse.json({ error: error.message }, { status: 409 })
+    }
+
+    if (error instanceof JobCategoryInUseError) {
       return NextResponse.json({ error: error.message }, { status: 409 })
     }
 

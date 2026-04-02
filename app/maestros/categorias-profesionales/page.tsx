@@ -4,7 +4,18 @@ import { prisma } from '@/lib/prisma'
 
 export const dynamic = 'force-dynamic'
 
-export default async function JobCategoriesPage() {
+type JobCategoriesPageProps = {
+  searchParams?: Promise<{
+    error?: string
+  }>
+}
+
+export default async function JobCategoriesPage({
+  searchParams,
+}: JobCategoriesPageProps) {
+  const query = searchParams ? await searchParams : undefined
+  const error = query?.error?.trim() || ''
+
   const categories = await prisma.jobCategory.findMany({
     orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
   })
@@ -37,6 +48,14 @@ export default async function JobCategoriesPage() {
         </div>
       </section>
 
+      {error ? (
+        <section className="card">
+          <div className="form-error" role="alert">
+            {error}
+          </div>
+        </section>
+      ) : null}
+
       <section className="card">
         {categories.length === 0 ? (
           <div className="empty-state">
@@ -68,40 +87,75 @@ export default async function JobCategoriesPage() {
               </thead>
 
               <tbody>
-                {categories.map((category) => (
-                  <tr key={category.id}>
-                    <td>{category.code}</td>
+                {categories.map((category) => {
+                  const resolvedTextColor = category.textColor || '#0f172a'
+                  const resolvedDotColor = category.textColor || '#cbd5e1'
 
-                    <td>
-                      <strong>{category.name}</strong>
-                    </td>
+                  return (
+                    <tr key={category.id}>
+                      <td>{category.code}</td>
 
-                    <td>{category.shortName ?? '—'}</td>
+                      <td>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                          }}
+                        >
+                          <span
+                            aria-hidden="true"
+                            style={{
+                              width: '10px',
+                              height: '10px',
+                              borderRadius: '999px',
+                              flexShrink: 0,
+                              border: '1px solid rgba(15, 23, 42, 0.08)',
+                              backgroundColor: resolvedDotColor,
+                            }}
+                          />
 
-                    <td>{category.displayOrder}</td>
+                          <strong style={{ color: resolvedTextColor }}>
+                            {category.name}
+                          </strong>
+                        </div>
+                      </td>
 
-                    <td>
-                      <span
-                        className={
-                          category.isActive
-                            ? 'status-chip active'
-                            : 'status-chip inactive'
-                        }
-                      >
-                        {category.isActive ? 'Activa' : 'Inactiva'}
-                      </span>
-                    </td>
+                      <td>
+                        {category.shortName ? (
+                          <span style={{ color: resolvedTextColor }}>
+                            {category.shortName}
+                          </span>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
 
-                    <td className="actions-cell">
-                      <Link
-                        href={`/maestros/categorias-profesionales/${category.id}/editar`}
-                        className="button button-secondary"
-                      >
-                        Editar
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                      <td>{category.displayOrder}</td>
+
+                      <td>
+                        <span
+                          className={
+                            category.isActive
+                              ? 'status-chip active'
+                              : 'status-chip inactive'
+                          }
+                        >
+                          {category.isActive ? 'Activa' : 'Inactiva'}
+                        </span>
+                      </td>
+
+                      <td className="actions-cell">
+                        <Link
+                          href={`/maestros/categorias-profesionales/${category.id}/editar`}
+                          className="button button-secondary"
+                        >
+                          Editar
+                        </Link>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

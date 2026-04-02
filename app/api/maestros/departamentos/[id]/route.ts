@@ -26,14 +26,16 @@ async function getRequestBody(request: NextRequest) {
       formData.get("isActive") === null
         ? false
         : formData.get("isActive") === "true",
+    jobCategoryIds: formData.getAll("jobCategoryIds").map(String),
   };
 }
 
 function buildUpdateInput(body: {
-  code?: FormDataEntryValue | null;
-  name?: FormDataEntryValue | null;
-  description?: FormDataEntryValue | null;
+  code?: FormDataEntryValue | null | string;
+  name?: FormDataEntryValue | null | string;
+  description?: FormDataEntryValue | null | string;
   isActive?: boolean;
+  jobCategoryIds?: string[];
 }) {
   return {
     ...(typeof body.code === "string" ? { code: body.code.trim() } : {}),
@@ -49,13 +51,15 @@ function buildUpdateInput(body: {
         }
       : {}),
     ...(typeof body.isActive === "boolean" ? { isActive: body.isActive } : {}),
+    ...(Array.isArray(body.jobCategoryIds)
+      ? {
+          jobCategoryIds: [...new Set(body.jobCategoryIds)],
+        }
+      : {}),
   };
 }
 
-export async function GET(
-  _request: NextRequest,
-  context: RouteContext,
-) {
+export async function GET(_request: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
     const department = await departmentService.getById(id);
@@ -69,32 +73,25 @@ export async function GET(
   }
 }
 
-export async function PATCH(
-  request: NextRequest,
-  context: RouteContext,
-) {
+export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
     const body = await getRequestBody(request);
 
-    const updated = await departmentService.update(
-      id,
-      buildUpdateInput(body),
-    );
+    const updated = await departmentService.update(id, buildUpdateInput(body));
 
     return NextResponse.json(updated);
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Error al actualizar el departamento.";
+      error instanceof Error
+        ? error.message
+        : "Error al actualizar el departamento.";
 
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }
 
-export async function DELETE(
-  _request: NextRequest,
-  context: RouteContext,
-) {
+export async function DELETE(_request: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
 
@@ -103,45 +100,54 @@ export async function DELETE(
     return NextResponse.json({ success: true });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Error al eliminar el departamento.";
+      error instanceof Error
+        ? error.message
+        : "Error al eliminar el departamento.";
 
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }
 
-export async function POST(
-  request: NextRequest,
-  context: RouteContext,
-) {
+export async function POST(request: NextRequest, context: RouteContext) {
+  const { id } = await context.params;
+  const body = await getRequestBody(request);
+  const method =
+    typeof body._method === "string" ? body._method.toUpperCase() : "POST";
+
   try {
-    const { id } = await context.params;
-    const body = await getRequestBody(request);
-    const method =
-      typeof body._method === "string" ? body._method.toUpperCase() : "POST";
-
     if (method === "PATCH") {
-      const updated = await departmentService.update(
-        id,
-        buildUpdateInput(body),
-      );
+      await departmentService.update(id, buildUpdateInput(body));
 
-      return NextResponse.json(updated);
+      return NextResponse.redirect(
+        new URL(`/maestros/departamentos/${id}/editar?success=updated`, request.url),
+        { status: 303 }
+      );
     }
 
     if (method === "DELETE") {
       await departmentService.delete(id);
 
-      return NextResponse.json({ success: true });
+      return NextResponse.redirect(
+        new URL("/maestros/departamentos?success=deleted", request.url),
+        { status: 303 }
+      );
     }
 
     return NextResponse.json(
       { error: "Método no soportado." },
-      { status: 405 },
+      { status: 405 }
     );
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Error al procesar la solicitud.";
+  } catch (_error) {
+    if (method === "DELETE") {
+      return NextResponse.redirect(
+        new URL("/maestros/departamentos?error=delete_failed", request.url),
+        { status: 303 }
+      );
+    }
 
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.redirect(
+      new URL(`/maestros/departamentos/${id}/editar?error=save_failed`, request.url),
+      { status: 303 }
+    );
   }
 }

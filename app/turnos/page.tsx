@@ -12,6 +12,21 @@ type Employee = {
   isActive: boolean;
 };
 
+type WorkplaceOption = {
+  id: string;
+  name: string;
+};
+
+type DepartmentOption = {
+  id: string;
+  name: string;
+};
+
+type WorkAreaOption = {
+  id: string;
+  name: string;
+};
+
 type ShiftStatus = "BORRADOR" | "PUBLICADO" | "CANCELADO";
 type ShiftMasterType = "GENERAL" | "RESTAURANTE" | "PISOS";
 
@@ -20,6 +35,7 @@ type Shift = {
   employeeId: string;
   workplaceId: string;
   departmentId: string;
+  workAreaId: string | null;
   jobCategoryId: string | null;
   shiftMasterId: string | null;
   startAt: string;
@@ -40,6 +56,10 @@ type Shift = {
     id: string;
     name: string;
   };
+  workArea: {
+    id: string;
+    name: string;
+  } | null;
   jobCategory: {
     id: string;
     name: string;
@@ -61,11 +81,24 @@ export default function TurnosPage() {
   const [currentWeekStart, setCurrentWeekStart] = useState(() =>
     getStartOfWeek(new Date())
   );
+
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
+
+  const [workplaces, setWorkplaces] = useState<WorkplaceOption[]>([]);
+  const [departments, setDepartments] = useState<DepartmentOption[]>([]);
+  const [workAreas, setWorkAreas] = useState<WorkAreaOption[]>([]);
+
   const [isLoading, setIsLoading] = useState(true);
+  const [isCatalogLoading, setIsCatalogLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+
+  const [selectedWorkplaceId, setSelectedWorkplaceId] = useState("all");
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState("all");
+  const [selectedWorkAreaId, setSelectedWorkAreaId] = useState("all");
+  const [selectedStatus, setSelectedStatus] = useState("all");
+  const [employeeSearch, setEmployeeSearch] = useState("");
 
   const weekDays = useMemo(
     () => Array.from({ length: 7 }, (_, index) => addDays(currentWeekStart, index)),
@@ -73,8 +106,122 @@ export default function TurnosPage() {
   );
 
   useEffect(() => {
+    void loadWorkplaces();
+  }, []);
+
+  useEffect(() => {
+    void loadDepartments(selectedWorkplaceId);
+  }, [selectedWorkplaceId]);
+
+  useEffect(() => {
+    void loadWorkAreas(selectedDepartmentId);
+  }, [selectedDepartmentId]);
+
+  useEffect(() => {
     void loadWeekData(currentWeekStart);
-  }, [currentWeekStart]);
+  }, [
+    currentWeekStart,
+    selectedWorkplaceId,
+    selectedDepartmentId,
+    selectedWorkAreaId,
+  ]);
+
+  async function loadWorkplaces() {
+    try {
+      setIsCatalogLoading(true);
+      setError(null);
+
+      const response = await fetch("/api/workplaces", {
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        throw new Error("No se pudieron cargar los lugares de trabajo.");
+      }
+
+      const data = (await response.json()) as WorkplaceOption[];
+
+      setWorkplaces(
+        [...data]
+          .filter((item) => item.id && item.name)
+          .sort((a, b) => a.name.localeCompare(b.name, "es"))
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Ha ocurrido un error inesperado."
+      );
+      setWorkplaces([]);
+    } finally {
+      setIsCatalogLoading(false);
+    }
+  }
+
+  async function loadDepartments(workplaceId: string) {
+    try {
+      setError(null);
+
+      const query =
+        workplaceId !== "all"
+          ? `?workplaceId=${encodeURIComponent(workplaceId)}`
+          : "";
+
+      const response = await fetch(`/api/departments${query}`, {
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        throw new Error("No se pudieron cargar los departamentos.");
+      }
+
+      const data = (await response.json()) as DepartmentOption[];
+
+      setDepartments(
+        [...data]
+          .filter((item) => item.id && item.name)
+          .sort((a, b) => a.name.localeCompare(b.name, "es"))
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Ha ocurrido un error inesperado."
+      );
+      setDepartments([]);
+    }
+  }
+
+  async function loadWorkAreas(departmentId: string) {
+    try {
+      setError(null);
+
+      if (departmentId === "all") {
+        setWorkAreas([]);
+        return;
+      }
+
+      const response = await fetch(
+        `/api/work-areas?departmentId=${encodeURIComponent(departmentId)}`,
+        {
+          cache: "no-store",
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("No se pudieron cargar las zonas.");
+      }
+
+      const data = (await response.json()) as WorkAreaOption[];
+
+      setWorkAreas(
+        [...data]
+          .filter((item) => item.id && item.name)
+          .sort((a, b) => a.name.localeCompare(b.name, "es"))
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Ha ocurrido un error inesperado."
+      );
+      setWorkAreas([]);
+    }
+  }
 
   async function loadWeekData(weekStart: Date) {
     try {
@@ -84,14 +231,28 @@ export default function TurnosPage() {
       const startAt = startOfDay(weekStart);
       const endAt = endOfDay(addDays(weekStart, 6));
 
+      const shiftParams = new URLSearchParams({
+        startAt: startAt.toISOString(),
+        endAt: endAt.toISOString(),
+      });
+
+      if (selectedWorkplaceId !== "all") {
+        shiftParams.set("workplaceId", selectedWorkplaceId);
+      }
+
+      if (selectedDepartmentId !== "all") {
+        shiftParams.set("departmentId", selectedDepartmentId);
+      }
+
+      if (selectedWorkAreaId !== "all") {
+        shiftParams.set("workAreaId", selectedWorkAreaId);
+      }
+
       const [employeesResponse, shiftsResponse] = await Promise.all([
         fetch("/api/employees", { cache: "no-store" }),
-        fetch(
-          `/api/shifts?startAt=${encodeURIComponent(startAt.toISOString())}&endAt=${encodeURIComponent(
-            endAt.toISOString()
-          )}`,
-          { cache: "no-store" }
-        ),
+        fetch(`/api/shifts?${shiftParams.toString()}`, {
+          cache: "no-store",
+        }),
       ]);
 
       if (!employeesResponse.ok) {
@@ -99,7 +260,7 @@ export default function TurnosPage() {
       }
 
       if (!shiftsResponse.ok) {
-        throw new Error("No se pudieron cargar los turnos.");
+        throw new Error("No se pudo cargar el cuadrante.");
       }
 
       const employeesData = (await employeesResponse.json()) as Employee[];
@@ -115,6 +276,7 @@ export default function TurnosPage() {
             )
           )
       );
+
       setShifts(shiftsData);
     } catch (err) {
       setError(
@@ -124,6 +286,52 @@ export default function TurnosPage() {
       setIsLoading(false);
     }
   }
+
+  const workplaceOptions = useMemo(() => workplaces, [workplaces]);
+  const departmentOptions = useMemo(() => departments, [departments]);
+  const workAreaOptions = useMemo(() => workAreas, [workAreas]);
+
+  const filteredShifts = useMemo(() => {
+    if (selectedStatus === "all") {
+      return shifts;
+    }
+
+    return shifts.filter((shift) => shift.status === selectedStatus);
+  }, [shifts, selectedStatus]);
+
+  const filteredEmployees = useMemo(() => {
+    const normalizedSearch = employeeSearch.trim().toLocaleLowerCase("es");
+    const employeeIdsWithVisibleShifts = new Set(
+      filteredShifts.map((shift) => shift.employeeId)
+    );
+
+    return employees.filter((employee) => {
+      const fullName = `${employee.firstName} ${employee.lastName}`.toLocaleLowerCase("es");
+      const matchesSearch =
+        normalizedSearch === "" || fullName.includes(normalizedSearch);
+
+      const hasVisibleShift = employeeIdsWithVisibleShifts.has(employee.id);
+
+      if (
+        selectedWorkplaceId === "all" &&
+        selectedDepartmentId === "all" &&
+        selectedWorkAreaId === "all" &&
+        selectedStatus === "all"
+      ) {
+        return matchesSearch;
+      }
+
+      return matchesSearch && hasVisibleShift;
+    });
+  }, [
+    employees,
+    filteredShifts,
+    employeeSearch,
+    selectedWorkplaceId,
+    selectedDepartmentId,
+    selectedWorkAreaId,
+    selectedStatus,
+  ]);
 
   function goToPreviousWeek() {
     setCurrentWeekStart((prev) => addDays(prev, -7));
@@ -137,6 +345,14 @@ export default function TurnosPage() {
     setCurrentWeekStart(getStartOfWeek(new Date()));
   }
 
+  function resetFilters() {
+    setSelectedWorkplaceId("all");
+    setSelectedDepartmentId("all");
+    setSelectedWorkAreaId("all");
+    setSelectedStatus("all");
+    setEmployeeSearch("");
+  }
+
   async function handleCreated() {
     await loadWeekData(currentWeekStart);
   }
@@ -146,16 +362,16 @@ export default function TurnosPage() {
       <div className="page-shell">
         <div className="page-header">
           <div>
-            <p className="page-eyebrow">HORION</p>
-            <h1 className="page-title">Turnos</h1>
+            <p className="page-eyebrow">TURNOHOTEL</p>
+            <h1 className="page-title">Cuadrantes</h1>
             <p className="page-subtitle">
-              Vista semanal inicial de planificación
+              Vista semanal operativa para organizar personal y turnos por día.
             </p>
           </div>
 
           <div className="toolbar">
             <button className="toolbar-button primary" onClick={() => setShowForm(true)}>
-              + Nuevo turno
+              + Nuevo registro
             </button>
 
             <button className="toolbar-button secondary" onClick={goToPreviousWeek}>
@@ -163,7 +379,7 @@ export default function TurnosPage() {
             </button>
 
             <button className="toolbar-button secondary" onClick={goToCurrentWeek}>
-              Hoy
+              Semana actual
             </button>
 
             <button className="toolbar-button secondary" onClick={goToNextWeek}>
@@ -174,7 +390,7 @@ export default function TurnosPage() {
 
         <div className="week-range-card">
           <div>
-            <span className="week-range-label">Semana</span>
+            <span className="week-range-label">Cuadrante semanal</span>
             <strong className="week-range-value">
               {formatLongDate(weekDays[0])} — {formatLongDate(weekDays[6])}
             </strong>
@@ -182,12 +398,123 @@ export default function TurnosPage() {
 
           <div className="week-summary">
             <div className="summary-item">
-              <span className="summary-value">{employees.length}</span>
+              <span className="summary-value">{filteredEmployees.length}</span>
               <span className="summary-label">empleados</span>
             </div>
             <div className="summary-item">
-              <span className="summary-value">{shifts.length}</span>
-              <span className="summary-label">turnos</span>
+              <span className="summary-value">{filteredShifts.length}</span>
+              <span className="summary-label">registros</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="filters-card">
+          <div className="filters-header">
+            <div>
+              <h2 className="filters-title">Filtros del cuadrante</h2>
+              <p className="filters-subtitle">
+                Acota la vista por centro, departamento, zona, estado o empleado.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              className="toolbar-button ghost"
+              onClick={resetFilters}
+            >
+              Limpiar filtros
+            </button>
+          </div>
+
+          <div className="filters-grid">
+            <div className="filter-field">
+              <label htmlFor="workplaceFilter">Lugar de trabajo</label>
+              <select
+                id="workplaceFilter"
+                value={selectedWorkplaceId}
+                onChange={(event) => {
+                  setSelectedWorkplaceId(event.target.value);
+                  setSelectedDepartmentId("all");
+                  setSelectedWorkAreaId("all");
+                  setDepartments([]);
+                  setWorkAreas([]);
+                }}
+                disabled={isCatalogLoading}
+              >
+                <option value="all">Todos</option>
+                {workplaceOptions.map((workplace) => (
+                  <option key={workplace.id} value={workplace.id}>
+                    {workplace.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="filter-field">
+              <label htmlFor="departmentFilter">Departamento</label>
+              <select
+                id="departmentFilter"
+                value={selectedDepartmentId}
+                onChange={(event) => {
+                  setSelectedDepartmentId(event.target.value);
+                  setSelectedWorkAreaId("all");
+                  setWorkAreas([]);
+                }}
+                disabled={isCatalogLoading}
+              >
+                <option value="all">Todos</option>
+                {departmentOptions.map((department) => (
+                  <option key={department.id} value={department.id}>
+                    {department.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="filter-field">
+              <label htmlFor="workAreaFilter">Zona</label>
+              <select
+                id="workAreaFilter"
+                value={selectedWorkAreaId}
+                onChange={(event) => setSelectedWorkAreaId(event.target.value)}
+                disabled={selectedDepartmentId === "all"}
+              >
+                <option value="all">
+                  {selectedDepartmentId === "all"
+                    ? "Selecciona un departamento"
+                    : "Todas"}
+                </option>
+                {workAreaOptions.map((workArea) => (
+                  <option key={workArea.id} value={workArea.id}>
+                    {workArea.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="filter-field">
+              <label htmlFor="statusFilter">Estado</label>
+              <select
+                id="statusFilter"
+                value={selectedStatus}
+                onChange={(event) => setSelectedStatus(event.target.value)}
+              >
+                <option value="all">Todos</option>
+                <option value="BORRADOR">Borrador</option>
+                <option value="PUBLICADO">Publicado</option>
+                <option value="CANCELADO">Cancelado</option>
+              </select>
+            </div>
+
+            <div className="filter-field employee-search-field">
+              <label htmlFor="employeeSearch">Empleado</label>
+              <input
+                id="employeeSearch"
+                type="text"
+                placeholder="Buscar por nombre o apellidos"
+                value={employeeSearch}
+                onChange={(event) => setEmployeeSearch(event.target.value)}
+              />
             </div>
           </div>
         </div>
@@ -200,7 +527,7 @@ export default function TurnosPage() {
 
         {isLoading ? (
           <div className="state-card">
-            <p>Cargando planificación semanal...</p>
+            <p>Cargando cuadrante semanal...</p>
           </div>
         ) : (
           <div className="planner-card">
@@ -214,21 +541,21 @@ export default function TurnosPage() {
                 </div>
               ))}
 
-              {employees.map((employee) => (
+              {filteredEmployees.map((employee) => (
                 <WeeklyEmployeeRow
                   key={employee.id}
                   employee={employee}
                   weekDays={weekDays}
-                  shifts={shifts.filter((shift) => shift.employeeId === employee.id)}
+                  shifts={filteredShifts.filter((shift) => shift.employeeId === employee.id)}
                 />
               ))}
             </div>
           </div>
         )}
 
-        {!isLoading && !error && employees.length === 0 ? (
+        {!isLoading && !error && filteredEmployees.length === 0 ? (
           <div className="state-card">
-            <p>No hay empleados activos para mostrar.</p>
+            <p>No hay resultados para los filtros seleccionados.</p>
           </div>
         ) : null}
       </div>
@@ -242,10 +569,10 @@ export default function TurnosPage() {
 
       <style jsx>{`
         .page-shell {
-          padding: 24px;
+          padding: 16px;
           display: flex;
           flex-direction: column;
-          gap: 20px;
+          gap: 16px;
           background: #f6f8fc;
           min-height: 100%;
         }
@@ -254,13 +581,13 @@ export default function TurnosPage() {
           display: flex;
           justify-content: space-between;
           align-items: flex-start;
-          gap: 16px;
+          gap: 12px;
           flex-wrap: wrap;
         }
 
         .page-eyebrow {
-          margin: 0 0 6px 0;
-          font-size: 12px;
+          margin: 0 0 4px 0;
+          font-size: 11px;
           font-weight: 700;
           letter-spacing: 0.08em;
           text-transform: uppercase;
@@ -269,29 +596,29 @@ export default function TurnosPage() {
 
         .page-title {
           margin: 0;
-          font-size: 32px;
+          font-size: 24px;
           line-height: 1.1;
           font-weight: 800;
           color: #0f172a;
         }
 
         .page-subtitle {
-          margin: 8px 0 0 0;
+          margin: 6px 0 0 0;
           color: #475569;
-          font-size: 14px;
+          font-size: 12px;
         }
 
         .toolbar {
           display: flex;
-          gap: 10px;
+          gap: 8px;
           flex-wrap: wrap;
         }
 
         .toolbar-button {
           border: none;
-          border-radius: 12px;
-          padding: 10px 14px;
-          font-size: 14px;
+          border-radius: 10px;
+          padding: 8px 10px;
+          font-size: 12px;
           font-weight: 600;
           cursor: pointer;
           transition: transform 0.15s ease, opacity 0.15s ease;
@@ -311,47 +638,59 @@ export default function TurnosPage() {
           color: white;
         }
 
+        .toolbar-button.ghost {
+          background: #e2e8f0;
+          color: #0f172a;
+        }
+
+        .toolbar-button:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+          transform: none;
+        }
+
         .week-range-card,
         .planner-card,
-        .state-card {
+        .state-card,
+        .filters-card {
           background: white;
           border: 1px solid #e2e8f0;
-          border-radius: 18px;
+          border-radius: 16px;
           box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
         }
 
         .week-range-card {
-          padding: 18px 20px;
+          padding: 14px 16px;
           display: flex;
           align-items: center;
           justify-content: space-between;
-          gap: 16px;
+          gap: 12px;
           flex-wrap: wrap;
         }
 
         .week-range-label {
           display: block;
-          font-size: 12px;
+          font-size: 11px;
           font-weight: 700;
           text-transform: uppercase;
           color: #64748b;
-          margin-bottom: 6px;
+          margin-bottom: 4px;
         }
 
         .week-range-value {
-          font-size: 16px;
+          font-size: 14px;
           color: #0f172a;
         }
 
         .week-summary {
           display: flex;
-          gap: 12px;
+          gap: 8px;
         }
 
         .summary-item {
-          min-width: 92px;
-          padding: 10px 12px;
-          border-radius: 14px;
+          min-width: 72px;
+          padding: 8px 10px;
+          border-radius: 12px;
           background: #f8fafc;
           border: 1px solid #e2e8f0;
           text-align: center;
@@ -359,20 +698,92 @@ export default function TurnosPage() {
 
         .summary-value {
           display: block;
-          font-size: 20px;
+          font-size: 18px;
           font-weight: 800;
           color: #0f172a;
         }
 
         .summary-label {
           display: block;
+          font-size: 11px;
+          color: #64748b;
+          margin-top: 2px;
+        }
+
+        .filters-card {
+          padding: 16px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .filters-header {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+
+        .filters-title {
+          margin: 0;
+          font-size: 16px;
+          font-weight: 800;
+          color: #0f172a;
+        }
+
+        .filters-subtitle {
+          margin: 4px 0 0 0;
           font-size: 12px;
           color: #64748b;
-          margin-top: 4px;
+        }
+
+        .filters-grid {
+          display: grid;
+          grid-template-columns: repeat(5, minmax(110px, 1fr));
+          gap: 10px;
+        }
+
+        .filter-field {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          min-width: 0;
+        }
+
+        .filter-field label {
+          font-size: 11px;
+          font-weight: 700;
+          color: #334155;
+        }
+
+        .filter-field select,
+        .filter-field input {
+          width: 100%;
+          border: 1px solid #cbd5e1;
+          border-radius: 10px;
+          padding: 8px 10px;
+          font-size: 12px;
+          color: #0f172a;
+          background: white;
+          outline: none;
+          min-width: 0;
+        }
+
+        .filter-field select:focus,
+        .filter-field input:focus {
+          border-color: #b7791f;
+          box-shadow: 0 0 0 3px rgba(183, 121, 31, 0.12);
+        }
+
+        .filter-field select:disabled {
+          background: #f8fafc;
+          color: #94a3b8;
+          cursor: not-allowed;
         }
 
         .state-card {
-          padding: 24px;
+          padding: 18px;
         }
 
         .state-card.error {
@@ -382,13 +793,21 @@ export default function TurnosPage() {
         }
 
         .planner-card {
-          overflow: auto;
+          overflow-x: hidden;
+          overflow-y: auto;
         }
 
         .planner-grid {
           display: grid;
-          grid-template-columns: 260px repeat(7, minmax(180px, 1fr));
-          min-width: 1520px;
+          grid-template-columns: 110px repeat(7, minmax(0, 1fr));
+          width: 100%;
+        }
+
+        .planner-corner,
+        .planner-day-header,
+        .employee-cell,
+        .day-cell {
+          min-width: 0;
         }
 
         .planner-corner {
@@ -397,8 +816,8 @@ export default function TurnosPage() {
           z-index: 3;
           background: #0f172a;
           color: white;
-          padding: 16px;
-          font-size: 13px;
+          padding: 10px 8px;
+          font-size: 11px;
           font-weight: 700;
           border-right: 1px solid #1e293b;
         }
@@ -406,32 +825,58 @@ export default function TurnosPage() {
         .planner-day-header {
           background: #0f172a;
           color: white;
-          padding: 16px;
+          padding: 10px 6px;
           border-left: 1px solid #1e293b;
           display: flex;
           flex-direction: column;
-          gap: 4px;
+          gap: 2px;
+          align-items: center;
+          text-align: center;
         }
 
         .planner-day-name {
-          font-size: 12px;
+          font-size: 10px;
           text-transform: uppercase;
-          letter-spacing: 0.06em;
+          letter-spacing: 0.04em;
           color: #cbd5e1;
         }
 
         .planner-day-date {
-          font-size: 20px;
+          font-size: 16px;
           font-weight: 800;
         }
 
-        @media (max-width: 900px) {
-          .page-shell {
-            padding: 16px;
+        @media (max-width: 1200px) {
+          .planner-card {
+            overflow-x: auto;
           }
 
-          .page-title {
-            font-size: 26px;
+          .planner-grid {
+            min-width: 900px;
+          }
+        }
+
+        @media (max-width: 900px) {
+          .filters-grid {
+            grid-template-columns: repeat(2, minmax(120px, 1fr));
+          }
+
+          .planner-grid {
+            min-width: 840px;
+          }
+        }
+
+        @media (max-width: 640px) {
+          .filters-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .week-summary {
+            width: 100%;
+          }
+
+          .summary-item {
+            flex: 1;
           }
         }
       `}</style>
@@ -460,7 +905,7 @@ function WeeklyEmployeeRow({
                 src={employee.photoUrl}
                 alt={`${employee.firstName} ${employee.lastName}`}
                 fill
-                sizes="40px"
+                sizes="28px"
               />
             ) : (
               <span>{getInitials(employee.firstName, employee.lastName)}</span>
@@ -468,7 +913,7 @@ function WeeklyEmployeeRow({
           </div>
 
           <div className="employee-text">
-            <strong>
+            <strong title={`${employee.firstName} ${employee.lastName}`}>
               {employee.firstName} {employee.lastName}
             </strong>
           </div>
@@ -511,28 +956,29 @@ function WeeklyEmployeeRow({
                       ) : null}
                     </div>
 
-                    <div className="shift-master-name">
+                    <div
+                      className="shift-master-name"
+                      title={shift.shiftMaster?.name || "Turno manual"}
+                    >
                       {shift.shiftMaster?.name || "Turno manual"}
                     </div>
 
-                    <div className="shift-meta">
-                      <span>{shift.department.name}</span>
-                      {shift.jobCategory?.shortName || shift.jobCategory?.name ? (
-                        <span
-                          style={{
-                            color: shift.jobCategory?.textColor || undefined,
-                          }}
-                        >
-                          {" · "}
-                          {shift.jobCategory.shortName || shift.jobCategory.name}
-                        </span>
-                      ) : null}
+                    <div
+                      className="shift-meta"
+                      title={`${shift.department.name}${shift.workArea?.name ? ` · ${shift.workArea.name}` : ""}`}
+                    >
+                      {shift.department.name}
+                      {shift.workArea?.name ? ` · ${shift.workArea.name}` : ""}
                     </div>
 
-                    <div className="shift-workplace">{shift.workplace.name}</div>
+                    <div className="shift-workplace" title={shift.workplace.name}>
+                      {shift.workplace.name}
+                    </div>
 
                     {shift.notes ? (
-                      <div className="shift-notes">{shift.notes}</div>
+                      <div className="shift-notes" title={shift.notes}>
+                        {shift.notes}
+                      </div>
                     ) : null}
                   </div>
                 ))}
@@ -550,19 +996,20 @@ function WeeklyEmployeeRow({
           background: white;
           border-top: 1px solid #e2e8f0;
           border-right: 1px solid #e2e8f0;
-          padding: 12px 14px;
+          padding: 8px 6px;
         }
 
         .employee-info {
           display: flex;
           align-items: center;
-          gap: 12px;
+          gap: 6px;
+          min-width: 0;
         }
 
         .employee-avatar {
-          width: 40px;
-          height: 40px;
-          min-width: 40px;
+          width: 28px;
+          height: 28px;
+          min-width: 28px;
           border-radius: 999px;
           overflow: hidden;
           position: relative;
@@ -571,24 +1018,28 @@ function WeeklyEmployeeRow({
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 12px;
+          font-size: 9px;
           font-weight: 800;
         }
 
         .employee-text {
           min-width: 0;
+          flex: 1;
         }
 
         .employee-text strong {
           display: block;
-          font-size: 14px;
+          font-size: 11px;
           color: #0f172a;
-          line-height: 1.25;
+          line-height: 1.2;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
         .day-cell {
-          min-height: 116px;
-          padding: 10px;
+          min-height: 84px;
+          padding: 4px;
           border-top: 1px solid #e2e8f0;
           border-left: 1px solid #e2e8f0;
           background: #ffffff;
@@ -596,27 +1047,28 @@ function WeeklyEmployeeRow({
 
         .empty-day {
           height: 100%;
-          min-height: 96px;
+          min-height: 74px;
           border: 1px dashed #dbe4f0;
-          border-radius: 14px;
+          border-radius: 10px;
           display: flex;
           align-items: center;
           justify-content: center;
           color: #94a3b8;
-          font-size: 18px;
+          font-size: 14px;
         }
 
         .shift-list {
           display: flex;
           flex-direction: column;
-          gap: 8px;
+          gap: 4px;
         }
 
         .shift-card {
-          border-radius: 14px;
-          padding: 10px;
+          border-radius: 10px;
+          padding: 5px 6px;
           border: 1px solid #e2e8f0;
           background: #f8fafc;
+          overflow: hidden;
         }
 
         .shift-card.borrador {
@@ -636,22 +1088,23 @@ function WeeklyEmployeeRow({
           display: flex;
           justify-content: space-between;
           align-items: flex-start;
-          gap: 8px;
+          gap: 4px;
         }
 
         .shift-time {
-          font-size: 13px;
+          font-size: 10px;
           font-weight: 800;
           color: #0f172a;
+          line-height: 1.1;
         }
 
         .shift-type {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          padding: 4px 8px;
+          padding: 2px 5px;
           border-radius: 999px;
-          font-size: 11px;
+          font-size: 8px;
           font-weight: 800;
           border: 1px solid transparent;
           white-space: nowrap;
@@ -675,29 +1128,42 @@ function WeeklyEmployeeRow({
           color: #155e75;
         }
 
+        .shift-master-name,
+        .shift-meta,
+        .shift-workplace,
+        .shift-notes {
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
         .shift-master-name {
-          margin-top: 6px;
-          font-size: 13px;
+          margin-top: 4px;
+          font-size: 10px;
           font-weight: 700;
           color: #0f172a;
+          line-height: 1.1;
         }
 
         .shift-meta {
-          margin-top: 4px;
-          font-size: 12px;
+          margin-top: 3px;
+          font-size: 9px;
           color: #334155;
+          line-height: 1.1;
         }
 
         .shift-workplace {
-          margin-top: 4px;
-          font-size: 12px;
+          margin-top: 3px;
+          font-size: 9px;
           color: #64748b;
+          line-height: 1.1;
         }
 
         .shift-notes {
-          margin-top: 6px;
-          font-size: 12px;
+          margin-top: 3px;
+          font-size: 9px;
           color: #475569;
+          line-height: 1.1;
         }
       `}</style>
     </>

@@ -13,7 +13,6 @@ type CreateShiftMasterInput = {
   endMinute: number;
   crossesMidnight?: boolean;
   isPartial?: boolean;
-  backgroundColor?: string | null;
   coversBreakfast?: boolean;
   coversLunch?: boolean;
   coversDinner?: boolean;
@@ -32,7 +31,6 @@ type UpdateShiftMasterInput = {
   endMinute?: number;
   crossesMidnight?: boolean;
   isPartial?: boolean;
-  backgroundColor?: string | null;
   coversBreakfast?: boolean;
   coversLunch?: boolean;
   coversDinner?: boolean;
@@ -41,7 +39,10 @@ type UpdateShiftMasterInput = {
 };
 
 const MINUTES_PER_DAY = 1440;
-const HEX_COLOR_REGEX = /^#([0-9A-Fa-f]{6})$/;
+
+const MORNING_SHIFT_COLOR = "#FEF3C7";
+const AFTERNOON_SHIFT_COLOR = "#B7791F";
+const NIGHT_SHIFT_COLOR = "#0F172A";
 
 export const shiftMasterService = {
   async getById(id: string) {
@@ -74,9 +75,6 @@ export const shiftMasterService = {
     const normalizedCode = normalizeCode(input.code);
     const normalizedName = normalizeName(input.name);
     const normalizedDescription = normalizeDescription(input.description);
-    const normalizedBackgroundColor = normalizeBackgroundColor(
-      input.backgroundColor
-    );
 
     const type = input.type ?? "GENERAL";
     const crossesMidnight = input.crossesMidnight ?? false;
@@ -108,6 +106,10 @@ export const shiftMasterService = {
       input.workplaceId
     );
 
+    const resolvedBackgroundColor = resolveShiftMasterBackgroundColor(
+      input.endMinute
+    );
+
     return shiftMasterRepository.create({
       code: normalizedCode,
       name: normalizedName,
@@ -119,7 +121,7 @@ export const shiftMasterService = {
       endMinute: input.endMinute,
       crossesMidnight,
       isPartial,
-      backgroundColor: normalizedBackgroundColor,
+      backgroundColor: resolvedBackgroundColor,
       coversBreakfast,
       coversLunch,
       coversDinner,
@@ -149,11 +151,6 @@ export const shiftMasterService = {
       input.description === undefined
         ? existingShiftMaster.description
         : normalizeDescription(input.description);
-
-    const nextBackgroundColor =
-      input.backgroundColor === undefined
-        ? existingShiftMaster.backgroundColor
-        : normalizeBackgroundColor(input.backgroundColor);
 
     const nextWorkplaceId = input.workplaceId ?? existingShiftMaster.workplaceId;
     const nextDepartmentId =
@@ -195,6 +192,11 @@ export const shiftMasterService = {
       nextDepartmentId,
       nextWorkplaceId
     );
+
+    const nextBackgroundColor =
+      input.endMinute === undefined
+        ? existingShiftMaster.backgroundColor
+        : resolveShiftMasterBackgroundColor(nextEndMinute);
 
     return shiftMasterRepository.update(id, {
       code: nextCode,
@@ -283,26 +285,6 @@ function normalizeDescription(description?: string | null) {
   return normalized.length > 0 ? normalized : null;
 }
 
-function normalizeBackgroundColor(backgroundColor?: string | null) {
-  if (backgroundColor == null) {
-    return null;
-  }
-
-  const normalized = backgroundColor.trim().toUpperCase();
-
-  if (!normalized) {
-    return null;
-  }
-
-  if (!HEX_COLOR_REGEX.test(normalized)) {
-    throw new Error(
-      "El color de fondo debe tener formato hexadecimal #RRGGBB."
-    );
-  }
-
-  return normalized;
-}
-
 function validateMinuteRange(value: number, message: string) {
   if (!Number.isInteger(value) || value < 0 || value >= MINUTES_PER_DAY) {
     throw new Error(message);
@@ -354,6 +336,18 @@ function validateTypeFlags(
       "La opción de contar para asignación de habitaciones solo se puede usar en turnos de tipo PISOS."
     );
   }
+}
+
+function resolveShiftMasterBackgroundColor(endMinute: number) {
+  if (endMinute < 720) {
+    return MORNING_SHIFT_COLOR;
+  }
+
+  if (endMinute < 1080) {
+    return AFTERNOON_SHIFT_COLOR;
+  }
+
+  return NIGHT_SHIFT_COLOR;
 }
 
 async function validateWorkplaceExists(workplaceId: string) {

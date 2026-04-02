@@ -1,5 +1,14 @@
 import Link from "next/link";
 
+const TEXT_COLOR_OPTIONS = [
+  { value: "#0F172A", label: "Azul corporativo" },
+  { value: "#B7791F", label: "Oro corporativo" },
+  { value: "#0F766E", label: "Verde petróleo" },
+  { value: "#475569", label: "Gris pizarra" },
+  { value: "#047857", label: "Verde operativo" },
+  { value: "#C2410C", label: "Terracota" },
+];
+
 type NewJobCategoryPageProps = {
   searchParams?: Promise<{
     error?: string;
@@ -24,7 +33,7 @@ export default async function NewJobCategoryPage({
   const shortName = params?.shortName?.trim() || "";
   const description = params?.description?.trim() || "";
   const displayOrder = params?.displayOrder?.trim() || "0";
-  const textColor = params?.textColor?.trim() || "";
+  const textColor = params?.textColor?.trim() || TEXT_COLOR_OPTIONS[0].value;
   const isActive = params?.isActive !== "false";
 
   return (
@@ -110,15 +119,64 @@ export default async function NewJobCategoryPage({
             />
           </div>
 
-          <div className="form-field">
+          <div className="form-field form-field-full">
             <label htmlFor="textColor">Color de texto</label>
-            <input
-              id="textColor"
-              name="textColor"
-              type="text"
-              placeholder="Ej. #1F2937"
-              defaultValue={textColor}
-            />
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                gap: "12px",
+              }}
+            >
+              {TEXT_COLOR_OPTIONS.map((option) => {
+                const isSelected = textColor === option.value;
+
+                return (
+                  <label
+                    key={option.value}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      padding: "12px 14px",
+                      border: isSelected
+                        ? "2px solid #b7791f"
+                        : "1px solid #dbe4f0",
+                      borderRadius: "12px",
+                      background: isSelected ? "#fffaf0" : "#fff",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="textColor"
+                      value={option.value}
+                      defaultChecked={isSelected}
+                    />
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        width: "18px",
+                        height: "18px",
+                        borderRadius: "999px",
+                        border: "1px solid rgba(15, 23, 42, 0.15)",
+                        backgroundColor: option.value,
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span
+                      style={{
+                        fontSize: "14px",
+                        color: "#0f172a",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {option.label}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
           </div>
 
           <div className="form-field form-field-checkbox">

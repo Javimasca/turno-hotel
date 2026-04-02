@@ -4,6 +4,7 @@ export type CreateShiftInput = {
   employeeId: string;
   workplaceId?: string;
   departmentId?: string;
+  workAreaId?: string | null;
   jobCategoryId?: string | null;
   shiftMasterId?: string | null;
   date?: Date;
@@ -17,6 +18,7 @@ export type UpdateShiftInput = {
   employeeId?: string;
   workplaceId?: string;
   departmentId?: string;
+  workAreaId?: string | null;
   jobCategoryId?: string | null;
   shiftMasterId?: string | null;
   date?: Date;
@@ -31,6 +33,7 @@ export type ShiftFilters = {
   endAt: Date;
   workplaceId?: string;
   departmentId?: string;
+  workAreaId?: string;
   employeeId?: string;
   status?: ShiftStatus;
   shiftMasterId?: string;
