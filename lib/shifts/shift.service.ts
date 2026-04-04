@@ -77,6 +77,12 @@ export const shiftService = {
       resolvedData.endAt
     );
 
+    await validateApprovedFullDayAbsenceConflict(
+      resolvedData.employeeId,
+      resolvedData.startAt,
+      resolvedData.endAt
+    );
+
     return shiftRepository.create({
       employeeId: resolvedData.employeeId,
       workplaceId: resolvedData.workplaceId,
@@ -145,6 +151,12 @@ export const shiftService = {
       resolvedData.startAt,
       resolvedData.endAt,
       id
+    );
+
+    await validateApprovedFullDayAbsenceConflict(
+      resolvedData.employeeId,
+      resolvedData.startAt,
+      resolvedData.endAt
     );
 
     return shiftRepository.update(id, {
@@ -640,5 +652,37 @@ async function validateEmployeeOverlap(
 
   if (overlappingShifts.length > 0) {
     throw new Error("El empleado ya tiene otro turno solapado en ese rango horario.");
+  }
+}
+
+async function validateApprovedFullDayAbsenceConflict(
+  employeeId: string,
+  startAt: Date,
+  endAt: Date
+) {
+  const shiftStartDate = extractDate(startAt);
+  const shiftEndDate = extractDate(endAt);
+
+  const conflict = await prisma.absence.findFirst({
+    where: {
+      employeeId,
+      status: "APPROVED",
+      unit: "FULL_DAY",
+      startDate: {
+        lte: shiftEndDate,
+      },
+      endDate: {
+        gte: shiftStartDate,
+      },
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (conflict) {
+    throw new Error(
+      "No se puede asignar el turno porque el empleado tiene una ausencia aprobada de día completo en ese rango."
+    );
   }
 }

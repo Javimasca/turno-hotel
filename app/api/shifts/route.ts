@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { shiftService } from "@/lib/shifts/shift.service";
+import { shiftRepository } from "@/lib/shifts/shift.repository";
 
 export async function GET(request: NextRequest) {
   try {
@@ -21,15 +22,27 @@ export async function GET(request: NextRequest) {
     const startAt = new Date(startAtParam);
     const endAt = new Date(endAtParam);
 
-    const shifts = await shiftService.getByRange({
-      startAt,
-      endAt,
-      workplaceId,
-      departmentId,
-      workAreaId,
-    });
+    const [shifts, absences] = await Promise.all([
+      shiftService.getByRange({
+        startAt,
+        endAt,
+        workplaceId,
+        departmentId,
+        workAreaId,
+      }),
+      shiftRepository.findAbsencesByRange({
+        startAt,
+        endAt,
+        workplaceId,
+        departmentId,
+        workAreaId,
+      }),
+    ]);
 
-    return NextResponse.json(shifts);
+    return NextResponse.json({
+      shifts,
+      absences,
+    });
   } catch (error) {
     return handleApiError(error);
   }

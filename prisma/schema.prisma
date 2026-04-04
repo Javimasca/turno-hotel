@@ -45,6 +45,18 @@ enum AbsenceLegalCategory {
   OTHER
 }
 
+enum AbsenceUnit {
+  FULL_DAY
+  HOURLY
+}
+
+enum AbsenceStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
 model Workplace {
   id          String   @id @default(cuid())
   code        String   @unique
@@ -227,6 +239,7 @@ model Employee {
   employeeWorkplaces  EmployeeWorkplace[]
   employeeDepartments EmployeeDepartment[]
   shifts              Shift[]
+  absences            Absence[]
 
   @@index([lastName, firstName])
   @@index([directManagerEmployeeId])
@@ -376,6 +389,35 @@ model AbsenceType {
   createdAt          DateTime              @default(now())
   updatedAt          DateTime              @updatedAt
 
+  absences Absence[]
+
   @@index([isActive])
   @@index([displayOrder])
+}
+
+model Absence {
+  id            String @id @default(cuid())
+  employeeId    String
+  absenceTypeId String
+
+  unit AbsenceUnit
+
+  startDate DateTime @db.Date
+  endDate   DateTime @db.Date
+
+  startMinutes Int?
+  endMinutes   Int?
+
+  status      AbsenceStatus @default(PENDING)
+  notes       String?
+  documentUrl String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  employee    Employee    @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  absenceType AbsenceType @relation(fields: [absenceTypeId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, startDate, endDate])
+  @@index([status])
 }

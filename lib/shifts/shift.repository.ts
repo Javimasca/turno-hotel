@@ -59,6 +59,51 @@ export const shiftRepository = {
     });
   },
 
+  async findAbsencesByRange(input: FindByRangeInput) {
+    return prisma.absence.findMany({
+      where: {
+        startDate: {
+          lte: input.endAt,
+        },
+        endDate: {
+          gte: input.startAt,
+        },
+        employee: {
+          ...(input.workplaceId
+            ? {
+                employeeWorkplaces: {
+                  some: {
+                    workplaceId: input.workplaceId,
+                  },
+                },
+              }
+            : {}),
+          ...(input.departmentId
+            ? {
+                employeeDepartments: {
+                  some: {
+                    departmentId: input.departmentId,
+                  },
+                },
+              }
+            : {}),
+        },
+      },
+      include: {
+        employee: true,
+        absenceType: true,
+      },
+      orderBy: [
+        {
+          startDate: "asc",
+        },
+        {
+          createdAt: "asc",
+        },
+      ],
+    });
+  },
+
   async findByEmployee(employeeId: string) {
     return prisma.shift.findMany({
       where: { employeeId },

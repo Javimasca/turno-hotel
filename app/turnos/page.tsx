@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import ShiftForm from "@/components/shifts/shift-form";
+import AbsenceForm from "@/components/absences/absence-form";
 
 type Employee = {
   id: string;
@@ -75,6 +76,42 @@ type Shift = {
   } | null;
 };
 
+type Absence = {
+  id: string;
+  employeeId: string;
+  absenceTypeId: string;
+  unit: "FULL_DAY" | "HOURLY";
+  startDate: string;
+  endDate: string;
+  startMinutes: number | null;
+  endMinutes: number | null;
+  status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+  notes: string | null;
+  documentUrl: string | null;
+  employee: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    photoUrl: string | null;
+  };
+  absenceType: {
+    id: string;
+    code: string;
+    name: string;
+    color: string | null;
+  };
+};
+
+type ShiftsApiResponse = {
+  shifts: Shift[];
+  absences: Absence[];
+};
+
+type CellSelection = {
+  employeeId: string;
+  date: Date;
+};
+
 const DAY_NAMES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
 export default function TurnosPage() {
@@ -84,6 +121,7 @@ export default function TurnosPage() {
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
+  const [absences, setAbsences] = useState<Absence[]>([]);
 
   const [workplaces, setWorkplaces] = useState<WorkplaceOption[]>([]);
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
@@ -92,7 +130,14 @@ export default function TurnosPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isCatalogLoading, setIsCatalogLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
   const [showForm, setShowForm] = useState(false);
+  const [showAbsenceForm, setShowAbsenceForm] = useState(false);
+  const [prefillEmployeeId, setPrefillEmployeeId] = useState<string>("");
+  const [prefillDate, setPrefillDate] = useState<string>("");
+
+  const [showCellActionModal, setShowCellActionModal] = useState(false);
+  const [selectedCell, setSelectedCell] = useState<CellSelection | null>(null);
 
   const [selectedWorkplaceId, setSelectedWorkplaceId] = useState("all");
   const [selectedDepartmentId, setSelectedDepartmentId] = useState("all");
@@ -264,7 +309,7 @@ export default function TurnosPage() {
       }
 
       const employeesData = (await employeesResponse.json()) as Employee[];
-      const shiftsData = (await shiftsResponse.json()) as Shift[];
+      const shiftsData = (await shiftsResponse.json()) as ShiftsApiResponse;
 
       setEmployees(
         employeesData
@@ -277,7 +322,8 @@ export default function TurnosPage() {
           )
       );
 
-      setShifts(shiftsData);
+      setShifts(shiftsData.shifts);
+      setAbsences(shiftsData.absences);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Ha ocurrido un error inesperado."
@@ -304,6 +350,11 @@ export default function TurnosPage() {
     const employeeIdsWithVisibleShifts = new Set(
       filteredShifts.map((shift) => shift.employeeId)
     );
+    const employeeIdsWithVisibleAbsences = new Set(
+      absences
+        .filter((absence) => absence.status === "APPROVED")
+        .map((absence) => absence.employeeId)
+    );
 
     return employees.filter((employee) => {
       const fullName = `${employee.firstName} ${employee.lastName}`.toLocaleLowerCase("es");
@@ -311,6 +362,7 @@ export default function TurnosPage() {
         normalizedSearch === "" || fullName.includes(normalizedSearch);
 
       const hasVisibleShift = employeeIdsWithVisibleShifts.has(employee.id);
+      const hasVisibleAbsence = employeeIdsWithVisibleAbsences.has(employee.id);
 
       if (
         selectedWorkplaceId === "all" &&
@@ -321,11 +373,12 @@ export default function TurnosPage() {
         return matchesSearch;
       }
 
-      return matchesSearch && hasVisibleShift;
+      return matchesSearch && (hasVisibleShift || hasVisibleAbsence);
     });
   }, [
     employees,
     filteredShifts,
+    absences,
     employeeSearch,
     selectedWorkplaceId,
     selectedDepartmentId,
@@ -353,6 +406,56 @@ export default function TurnosPage() {
     setEmployeeSearch("");
   }
 
+  function handleOpenShiftForm(employeeId?: string, date?: Date) {
+    setPrefillEmployeeId(employeeId ?? "");
+    setPrefillDate(date ? toInputDate(date) : "");
+    setShowForm(true);
+  }
+
+  function handleCloseShiftForm() {
+    setShowForm(false);
+    setPrefillEmployeeId("");
+    setPrefillDate("");
+  }
+
+  function handleOpenAbsenceForm(employeeId?: string, date?: Date) {
+    setPrefillEmployeeId(employeeId ?? "");
+    setPrefillDate(date ? toInputDate(date) : "");
+    setShowAbsenceForm(true);
+  }
+
+  function handleCloseAbsenceForm() {
+    setShowAbsenceForm(false);
+    setPrefillEmployeeId("");
+    setPrefillDate("");
+  }
+
+  function handleCellClick(employeeId: string, date: Date) {
+    setSelectedCell({ employeeId, date });
+    setShowCellActionModal(true);
+  }
+
+  function handleCloseCellActionModal() {
+    setShowCellActionModal(false);
+    setSelectedCell(null);
+  }
+
+  function handleCreateShiftFromCell() {
+    if (!selectedCell) return;
+
+    setShowCellActionModal(false);
+    handleOpenShiftForm(selectedCell.employeeId, selectedCell.date);
+    setSelectedCell(null);
+  }
+
+   function handleCreateAbsenceFromCell() {
+    if (!selectedCell) return;
+
+    setShowCellActionModal(false);
+    handleOpenAbsenceForm(selectedCell.employeeId, selectedCell.date);
+    setSelectedCell(null);
+  }
+
   async function handleCreated() {
     await loadWeekData(currentWeekStart);
   }
@@ -370,7 +473,7 @@ export default function TurnosPage() {
           </div>
 
           <div className="toolbar">
-            <button className="toolbar-button primary" onClick={() => setShowForm(true)}>
+            <button className="toolbar-button primary" onClick={() => handleOpenShiftForm()}>
               + Nuevo registro
             </button>
 
@@ -547,6 +650,8 @@ export default function TurnosPage() {
                   employee={employee}
                   weekDays={weekDays}
                   shifts={filteredShifts.filter((shift) => shift.employeeId === employee.id)}
+                  absences={absences.filter((absence) => absence.employeeId === employee.id)}
+                  onDayClick={(day) => handleCellClick(employee.id, day)}
                 />
               ))}
             </div>
@@ -560,11 +665,72 @@ export default function TurnosPage() {
         ) : null}
       </div>
 
-      {showForm ? (
+            {showForm ? (
         <ShiftForm
-          onClose={() => setShowForm(false)}
+          onClose={handleCloseShiftForm}
           onCreated={handleCreated}
+          initialEmployeeId={prefillEmployeeId}
+          initialDate={prefillDate}
         />
+      ) : null}
+
+      {showAbsenceForm ? (
+        <AbsenceForm
+          onClose={handleCloseAbsenceForm}
+          onCreated={handleCreated}
+          initialEmployeeId={prefillEmployeeId}
+          initialDate={prefillDate}
+        />
+      ) : null}
+
+      {showCellActionModal && selectedCell ? (
+        <div className="cell-action-overlay" onClick={handleCloseCellActionModal}>
+          <div
+            className="cell-action-modal"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="cell-action-header">
+              <h3 className="cell-action-title">Crear desde cuadrante</h3>
+              <p className="cell-action-subtitle">
+                Elige qué quieres crear para esta celda.
+              </p>
+            </div>
+
+            <div className="cell-action-body">
+              <button
+                type="button"
+                className="cell-action-option"
+                onClick={handleCreateShiftFromCell}
+              >
+                <span className="cell-action-option-title">Crear turno</span>
+                <span className="cell-action-option-text">
+                  Abrir el formulario de turno con empleado y fecha precargados.
+                </span>
+              </button>
+
+              <button
+                type="button"
+                className="cell-action-option"
+                onClick={handleCreateAbsenceFromCell}
+              >
+                <span className="cell-action-option-title">Crear ausencia</span>
+                <span className="cell-action-option-text">
+                  Preparado para abrir el formulario de ausencia en el siguiente paso.
+                </span>
+              </button>
+            </div>
+
+            <div className="cell-action-footer">
+              <button
+                type="button"
+                className="toolbar-button ghost"
+                onClick={handleCloseCellActionModal}
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       <style jsx>{`
@@ -846,6 +1012,96 @@ export default function TurnosPage() {
           font-weight: 800;
         }
 
+        .cell-action-overlay {
+          position: fixed;
+          inset: 0;
+          z-index: 60;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 16px;
+          background: rgba(15, 23, 42, 0.45);
+        }
+
+        .cell-action-modal {
+          width: 100%;
+          max-width: 420px;
+          background: white;
+          border: 1px solid #e2e8f0;
+          border-radius: 18px;
+          box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+          overflow: hidden;
+        }
+
+        .cell-action-header {
+          padding: 18px 18px 12px 18px;
+          border-bottom: 1px solid #e2e8f0;
+        }
+
+        .cell-action-title {
+          margin: 0;
+          font-size: 18px;
+          font-weight: 800;
+          color: #0f172a;
+        }
+
+        .cell-action-subtitle {
+          margin: 6px 0 0 0;
+          font-size: 13px;
+          color: #64748b;
+        }
+
+        .cell-action-body {
+          padding: 16px 18px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .cell-action-option {
+          width: 100%;
+          border: 1px solid #e2e8f0;
+          border-radius: 14px;
+          background: #ffffff;
+          padding: 14px;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          text-align: left;
+          cursor: pointer;
+          transition:
+            transform 0.15s ease,
+            border-color 0.15s ease,
+            box-shadow 0.15s ease,
+            background 0.15s ease;
+        }
+
+        .cell-action-option:hover {
+          transform: translateY(-1px);
+          background: #f8fafc;
+          border-color: #cbd5e1;
+          box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+        }
+
+        .cell-action-option-title {
+          font-size: 14px;
+          font-weight: 700;
+          color: #0f172a;
+        }
+
+        .cell-action-option-text {
+          font-size: 12px;
+          color: #64748b;
+          line-height: 1.4;
+        }
+
+        .cell-action-footer {
+          padding: 12px 18px 18px 18px;
+          border-top: 1px solid #e2e8f0;
+          display: flex;
+          justify-content: flex-end;
+        }
+
         @media (max-width: 1200px) {
           .planner-card {
             overflow-x: auto;
@@ -878,6 +1134,10 @@ export default function TurnosPage() {
           .summary-item {
             flex: 1;
           }
+
+          .cell-action-modal {
+            max-width: 100%;
+          }
         }
       `}</style>
     </>
@@ -888,12 +1148,16 @@ type WeeklyEmployeeRowProps = {
   employee: Employee;
   weekDays: Date[];
   shifts: Shift[];
+  absences: Absence[];
+  onDayClick: (day: Date) => void;
 };
 
 function WeeklyEmployeeRow({
   employee,
   weekDays,
   shifts,
+  absences,
+  onDayClick,
 }: WeeklyEmployeeRowProps) {
   return (
     <>
@@ -928,63 +1192,127 @@ function WeeklyEmployeeRow({
               new Date(a.startAt).getTime() - new Date(b.startAt).getTime()
           );
 
+        const dayAbsence = absences.find((absence) => {
+          if (absence.status !== "APPROVED") {
+            return false;
+          }
+
+          if (absence.unit !== "FULL_DAY") {
+            return false;
+          }
+
+          const startDate = new Date(absence.startDate);
+          const endDate = new Date(absence.endDate);
+
+          return day >= startOfDay(startDate) && day <= endOfDay(endDate);
+        });
+
+        const dayHourlyAbsence = absences.find((absence) => {
+          if (absence.status !== "APPROVED") {
+            return false;
+          }
+
+          if (absence.unit !== "HOURLY") {
+            return false;
+          }
+
+          return isSameDay(new Date(absence.startDate), day);
+        });
+
         return (
-          <div key={`${employee.id}-${day.toISOString()}`} className="day-cell">
-            {dayShifts.length === 0 ? (
-              <div className="empty-day">—</div>
-            ) : (
-              <div className="shift-list">
-                {dayShifts.map((shift) => (
-                  <div
-                    key={shift.id}
-                    className={`shift-card ${shift.status.toLowerCase()}`}
-                    style={{
-                      background:
-                        shift.shiftMaster?.backgroundColor ||
-                        getStatusBackground(shift.status),
-                    }}
-                  >
-                    <div className="shift-card-top">
-                      <div className="shift-time">
-                        {formatTime(shift.startAt)} - {formatTime(shift.endAt)}
-                      </div>
-
-                      {shift.shiftMaster ? (
-                        <span className={`shift-type ${shift.shiftMaster.type.toLowerCase()}`}>
-                          {formatType(shift.shiftMaster.type)}
-                        </span>
-                      ) : null}
-                    </div>
-
-                    <div
-                      className="shift-master-name"
-                      title={shift.shiftMaster?.name || "Turno manual"}
-                    >
-                      {shift.shiftMaster?.name || "Turno manual"}
-                    </div>
-
-                    <div
-                      className="shift-meta"
-                      title={`${shift.department.name}${shift.workArea?.name ? ` · ${shift.workArea.name}` : ""}`}
-                    >
-                      {shift.department.name}
-                      {shift.workArea?.name ? ` · ${shift.workArea.name}` : ""}
-                    </div>
-
-                    <div className="shift-workplace" title={shift.workplace.name}>
-                      {shift.workplace.name}
-                    </div>
-
-                    {shift.notes ? (
-                      <div className="shift-notes" title={shift.notes}>
-                        {shift.notes}
-                      </div>
-                    ) : null}
+          <button
+            key={`${employee.id}-${day.toISOString()}`}
+            type="button"
+            className="day-cell"
+            onClick={() => onDayClick(day)}
+            title="Crear turno o ausencia en este día"
+          >
+            {dayAbsence ? (
+              <div
+                className="absence-card"
+                style={{ background: dayAbsence.absenceType.color || "#fee2e2" }}
+              >
+                <div className="absence-label">Ausencia</div>
+                <div className="absence-name">{dayAbsence.absenceType.name}</div>
+                {dayAbsence.notes ? (
+                  <div className="absence-notes" title={dayAbsence.notes}>
+                    {dayAbsence.notes}
                   </div>
-                ))}
+                ) : null}
+              </div>
+            ) : (
+              <div className="day-content">
+                {dayHourlyAbsence ? (
+                  <div
+                    className="hourly-absence-badge"
+                    style={{
+                      background: dayHourlyAbsence.absenceType.color || "#fef3c7",
+                    }}
+                    title={`${dayHourlyAbsence.absenceType.name} · ${formatMinutes(dayHourlyAbsence.startMinutes)} - ${formatMinutes(dayHourlyAbsence.endMinutes)}`}
+                  >
+                    {dayHourlyAbsence.absenceType.name} ·{" "}
+                    {formatMinutes(dayHourlyAbsence.startMinutes)} -{" "}
+                    {formatMinutes(dayHourlyAbsence.endMinutes)}
+                  </div>
+                ) : null}
+
+                {dayShifts.length === 0 ? (
+                  <div className="empty-day">—</div>
+                ) : (
+                  <div className="shift-list">
+                    {dayShifts.map((shift) => (
+                      <div
+                        key={shift.id}
+                        className={`shift-card ${shift.status.toLowerCase()}`}
+                        style={{
+                          background:
+                            shift.shiftMaster?.backgroundColor ||
+                            getStatusBackground(shift.status),
+                        }}
+                      >
+                        <div className="shift-card-top">
+                          <div className="shift-time">
+                            {formatTime(shift.startAt)} - {formatTime(shift.endAt)}
+                          </div>
+
+                          {shift.shiftMaster ? (
+                            <span className={`shift-type ${shift.shiftMaster.type.toLowerCase()}`}>
+                              {formatType(shift.shiftMaster.type)}
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <div
+                          className="shift-master-name"
+                          title={shift.shiftMaster?.name || "Turno manual"}
+                        >
+                          {shift.shiftMaster?.name || "Turno manual"}
+                        </div>
+
+                        <div
+                          className="shift-meta"
+                          title={`${shift.department.name}${shift.workArea?.name ? ` · ${shift.workArea.name}` : ""}`}
+                        >
+                          {shift.department.name}
+                          {shift.workArea?.name ? ` · ${shift.workArea.name}` : ""}
+                        </div>
+
+                        <div className="shift-workplace" title={shift.workplace.name}>
+                          {shift.workplace.name}
+                        </div>
+
+                        {shift.notes ? (
+                          <div className="shift-notes" title={shift.notes}>
+                            {shift.notes}
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
-          </div>
+          </button>
         );
       })}
 
@@ -1043,6 +1371,14 @@ function WeeklyEmployeeRow({
           border-top: 1px solid #e2e8f0;
           border-left: 1px solid #e2e8f0;
           background: #ffffff;
+          text-align: left;
+          border-right: none;
+          border-bottom: none;
+          cursor: pointer;
+        }
+
+        .day-cell:hover {
+          background: #f8fafc;
         }
 
         .empty-day {
@@ -1055,6 +1391,65 @@ function WeeklyEmployeeRow({
           justify-content: center;
           color: #94a3b8;
           font-size: 14px;
+        }
+
+        .day-content {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          min-height: 74px;
+        }
+
+        .absence-card {
+          min-height: 74px;
+          border-radius: 10px;
+          padding: 6px;
+          border: 1px solid #fecaca;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          overflow: hidden;
+        }
+
+        .absence-label {
+          font-size: 9px;
+          font-weight: 800;
+          text-transform: uppercase;
+          color: #991b1b;
+          line-height: 1.1;
+        }
+
+        .absence-name {
+          margin-top: 4px;
+          font-size: 10px;
+          font-weight: 800;
+          color: #7f1d1d;
+          line-height: 1.1;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .absence-notes {
+          margin-top: 4px;
+          font-size: 9px;
+          color: #7f1d1d;
+          line-height: 1.1;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .hourly-absence-badge {
+          border-radius: 8px;
+          padding: 4px 6px;
+          border: 1px solid #fcd34d;
+          font-size: 9px;
+          font-weight: 700;
+          color: #92400e;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
         .shift-list {
@@ -1207,6 +1602,14 @@ function isSameDay(a: Date, b: Date) {
   );
 }
 
+function toInputDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
 function formatLongDate(date: Date) {
   return new Intl.DateTimeFormat("es-ES", {
     day: "2-digit",
@@ -1227,6 +1630,17 @@ function formatTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function formatMinutes(value: number | null) {
+  if (value == null) return "";
+
+  const hours = Math.floor(value / 60)
+    .toString()
+    .padStart(2, "0");
+  const minutes = (value % 60).toString().padStart(2, "0");
+
+  return `${hours}:${minutes}`;
 }
 
 function formatType(type: ShiftMasterType) {

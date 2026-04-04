@@ -45,6 +45,8 @@ type ShiftMaster = {
 type Props = {
   onClose: () => void;
   onCreated: () => void | Promise<void>;
+  initialEmployeeId?: string;
+  initialDate?: string;
 };
 
 type FormState = {
@@ -54,15 +56,27 @@ type FormState = {
   notes: string;
 };
 
-const INITIAL_FORM: FormState = {
-  employeeId: "",
-  shiftMasterId: "",
-  date: "",
-  notes: "",
-};
+function buildInitialForm(
+  initialEmployeeId?: string,
+  initialDate?: string
+): FormState {
+  return {
+    employeeId: initialEmployeeId ?? "",
+    shiftMasterId: "",
+    date: initialDate ?? "",
+    notes: "",
+  };
+}
 
-export default function ShiftForm({ onClose, onCreated }: Props) {
-  const [form, setForm] = useState<FormState>(INITIAL_FORM);
+export default function ShiftForm({
+  onClose,
+  onCreated,
+  initialEmployeeId,
+  initialDate,
+}: Props) {
+  const [form, setForm] = useState<FormState>(() =>
+    buildInitialForm(initialEmployeeId, initialDate)
+  );
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [shiftMasters, setShiftMasters] = useState<ShiftMaster[]>([]);
@@ -75,6 +89,10 @@ export default function ShiftForm({ onClose, onCreated }: Props) {
     () => shiftMasters.find((item) => item.id === form.shiftMasterId) ?? null,
     [shiftMasters, form.shiftMasterId]
   );
+
+  useEffect(() => {
+    setForm(buildInitialForm(initialEmployeeId, initialDate));
+  }, [initialEmployeeId, initialDate]);
 
   useEffect(() => {
     void loadInitialOptions();
