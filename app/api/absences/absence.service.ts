@@ -9,6 +9,10 @@ import {
   CreateAbsenceInput,
   UpdateAbsenceInput,
 } from "./absence.repository";
+import { employeeRepository } from "@/lib/employees/employee.repository";
+import { canManageEmployee } from "@/lib/permissions/canManageEmployee";
+
+type UserRole = "ADMIN" | "MANAGER" | "EMPLOYEE";
 
 type ServiceResult<T> =
   | {
@@ -20,6 +24,19 @@ type ServiceResult<T> =
       error: string;
       status?: number;
     };
+
+type ServiceError = {
+  ok: false;
+  error: string;
+  status?: number;
+};
+
+type RequestContext = {
+  userId: string;
+  role: UserRole;
+  employeeId: string | null;
+  isActive: boolean;
+};
 
 type CreateAbsenceDto = {
   employeeId: string;
@@ -35,6 +52,14 @@ type CreateAbsenceDto = {
 };
 
 type UpdateAbsenceDto = Partial<CreateAbsenceDto>;
+
+function isManagerOrAdmin(role: UserRole): boolean {
+  return role === "ADMIN" || role === "MANAGER";
+}
+
+function canCreateApprovedAbsence(role: UserRole): boolean {
+  return isManagerOrAdmin(role);
+}
 
 function normalizeText(value?: string | null): string | null {
   if (value == null) return null;
@@ -58,6 +83,7 @@ function isSameDay(a: Date, b: Date): boolean {
 
 function validateMinutes(value: number | null | undefined, fieldName: string) {
   if (value == null) return;
+
   if (!Number.isInteger(value) || value < 0 || value > 1440) {
     throw new Error(`${fieldName} debe ser un entero entre 0 y 1440.`);
   }
@@ -112,9 +138,17 @@ function validateStructure(data: {
   }
 }
 
-function toCreateInput(dto: CreateAbsenceDto): CreateAbsenceInput {
+function toCreateInput(
+  dto: CreateAbsenceDto,
+  ctx: RequestContext
+): CreateAbsenceInput {
   const startDate = toDateOnly(dto.startDate);
   const endDate = toDateOnly(dto.endDate);
+
+  const resolvedStatus =
+    dto.status === AbsenceStatus.APPROVED && canCreateApprovedAbsence(ctx.role)
+      ? AbsenceStatus.APPROVED
+      : AbsenceStatus.PENDING;
 
   const data: CreateAbsenceInput = {
     employeeId: dto.employeeId,
@@ -126,7 +160,7 @@ function toCreateInput(dto: CreateAbsenceDto): CreateAbsenceInput {
       dto.unit === AbsenceUnit.HOURLY ? (dto.startMinutes ?? null) : null,
     endMinutes:
       dto.unit === AbsenceUnit.HOURLY ? (dto.endMinutes ?? null) : null,
-    status: dto.status ?? AbsenceStatus.PENDING,
+    status: resolvedStatus,
     notes: normalizeText(dto.notes),
     documentUrl: normalizeText(dto.documentUrl),
   };
@@ -148,11 +182,56 @@ function toUpdateInput(dto: UpdateAbsenceDto): UpdateAbsenceInput {
   if (dto.endMinutes !== undefined) data.endMinutes = dto.endMinutes;
   if (dto.status !== undefined) data.status = dto.status;
   if (dto.notes !== undefined) data.notes = normalizeText(dto.notes);
+
   if (dto.documentUrl !== undefined) {
     data.documentUrl = normalizeText(dto.documentUrl);
   }
 
   return data;
+}
+
+function ensureActiveUser(ctx: RequestContext): ServiceError | null {
+  if (!ctx.isActive) {
+    return {
+      ok: false,
+      error: "Usuario inactivo.",
+      status: 403,
+    };
+  }
+
+  return null;
+}
+
+async function ensureCanManageEmployee(params: {
+  ctx: RequestContext;
+  targetEmployeeId: string;
+}): Promise<ServiceError | null> {
+  const { ctx, targetEmployeeId } = params;
+
+  const isDirectManager =
+    ctx.employeeId && ctx.role === "MANAGER"
+      ? await employeeRepository.isDirectManagerOf(
+          ctx.employeeId,
+          targetEmployeeId
+        )
+      : false;
+
+  const result = canManageEmployee({
+    role: ctx.role,
+    currentEmployeeId: ctx.employeeId,
+    targetEmployeeId,
+    isDirectManager,
+  });
+
+  if (!result.allowed) {
+    return {
+      ok: false,
+      error: result.reason ?? "No tienes permisos para gestionar este empleado.",
+      status: 403,
+    };
+  }
+
+  return null;
 }
 
 async function validateOverlap(params: {
@@ -161,7 +240,7 @@ async function validateOverlap(params: {
   endDate: Date;
   excludeId?: string;
 }) {
-  const conflict = await absenceRepository.findOverlap({
+  const conflicts = await absenceRepository.findForOverlapValidation({
     employeeId: params.employeeId,
     startDate: params.startDate,
     endDate: params.endDate,
@@ -169,7 +248,7 @@ async function validateOverlap(params: {
     statuses: [AbsenceStatus.PENDING, AbsenceStatus.APPROVED],
   });
 
-  if (conflict) {
+  if (conflicts.length > 0) {
     throw new Error("Ya existe otra ausencia para ese empleado en ese rango o día.");
   }
 }
@@ -215,8 +294,26 @@ export const absenceService = {
     return { ok: true, data: item };
   },
 
-  async create(dto: CreateAbsenceDto): Promise<ServiceResult<Absence>> {
+  async create(
+    dto: CreateAbsenceDto,
+    ctx: RequestContext
+  ): Promise<ServiceResult<Absence>> {
     try {
+      const inactiveError = ensureActiveUser(ctx);
+      if (inactiveError) return inactiveError;
+
+      const manageError = await ensureCanManageEmployee({
+        ctx,
+        targetEmployeeId: dto.employeeId,
+      });
+
+      if (manageError) {
+        return {
+          ...manageError,
+          error: "No tienes permisos para crear ausencias para este empleado.",
+        };
+      }
+
       const absenceType = await absenceRepository.findAbsenceTypeById(
         dto.absenceTypeId
       );
@@ -239,7 +336,7 @@ export const absenceService = {
         };
       }
 
-      const data = toCreateInput(dto);
+      const data = toCreateInput(dto, ctx);
 
       validateUnitCompatibility(absenceType.durationMode, data.unit);
 
@@ -267,9 +364,13 @@ export const absenceService = {
 
   async update(
     id: string,
-    dto: UpdateAbsenceDto
+    dto: UpdateAbsenceDto,
+    ctx: RequestContext
   ): Promise<ServiceResult<Absence>> {
     try {
+      const inactiveError = ensureActiveUser(ctx);
+      if (inactiveError) return inactiveError;
+
       const existing = await absenceRepository.findById(id);
 
       if (!existing) {
@@ -277,6 +378,30 @@ export const absenceService = {
           ok: false,
           error: "Ausencia no encontrada.",
           status: 404,
+        };
+      }
+
+      const manageExistingError = await ensureCanManageEmployee({
+        ctx,
+        targetEmployeeId: existing.employeeId,
+      });
+
+      if (manageExistingError) {
+        return {
+          ...manageExistingError,
+          error: "No tienes permisos para editar esta ausencia.",
+        };
+      }
+
+      if (
+        ctx.role === "EMPLOYEE" &&
+        existing.employeeId === ctx.employeeId &&
+        existing.status !== AbsenceStatus.PENDING
+      ) {
+        return {
+          ok: false,
+          error: "Solo puedes editar tus propias ausencias pendientes.",
+          status: 403,
         };
       }
 
@@ -288,10 +413,30 @@ export const absenceService = {
       const nextStartDate = data.startDate ?? existing.startDate;
       const nextEndDate = data.endDate ?? existing.endDate;
       const nextStartMinutes =
-        data.startMinutes !== undefined ? data.startMinutes : existing.startMinutes;
+        data.startMinutes !== undefined
+          ? data.startMinutes
+          : existing.startMinutes;
       const nextEndMinutes =
         data.endMinutes !== undefined ? data.endMinutes : existing.endMinutes;
-      const nextStatus = data.status ?? existing.status;
+
+      const manageTargetError = await ensureCanManageEmployee({
+        ctx,
+        targetEmployeeId: nextEmployeeId,
+      });
+
+      if (manageTargetError) {
+        return {
+          ...manageTargetError,
+          error: "No tienes permisos para mover esta ausencia a ese empleado.",
+        };
+      }
+
+      let nextStatus = data.status ?? existing.status;
+
+      if (!canCreateApprovedAbsence(ctx.role)) {
+        nextStatus = existing.status;
+        delete data.status;
+      }
 
       const absenceType = await absenceRepository.findAbsenceTypeById(
         nextAbsenceTypeId
@@ -360,8 +505,22 @@ export const absenceService = {
     }
   },
 
-  async approve(id: string): Promise<ServiceResult<Absence>> {
+  async approve(
+    id: string,
+    ctx: RequestContext
+  ): Promise<ServiceResult<Absence>> {
     try {
+      const inactiveError = ensureActiveUser(ctx);
+      if (inactiveError) return inactiveError;
+
+      if (!isManagerOrAdmin(ctx.role)) {
+        return {
+          ok: false,
+          error: "No tienes permisos para aprobar ausencias.",
+          status: 403,
+        };
+      }
+
       const existing = await absenceRepository.findById(id);
 
       if (!existing) {
@@ -369,6 +528,18 @@ export const absenceService = {
           ok: false,
           error: "Ausencia no encontrada.",
           status: 404,
+        };
+      }
+
+      const manageError = await ensureCanManageEmployee({
+        ctx,
+        targetEmployeeId: existing.employeeId,
+      });
+
+      if (manageError) {
+        return {
+          ...manageError,
+          error: "No tienes permisos para aprobar esta ausencia.",
         };
       }
 
@@ -391,7 +562,13 @@ export const absenceService = {
     }
   },
 
-  async delete(id: string): Promise<ServiceResult<Absence>> {
+  async delete(
+    id: string,
+    ctx: RequestContext
+  ): Promise<ServiceResult<Absence>> {
+    const inactiveError = ensureActiveUser(ctx);
+    if (inactiveError) return inactiveError;
+
     const existing = await absenceRepository.findById(id);
 
     if (!existing) {
@@ -399,6 +576,31 @@ export const absenceService = {
         ok: false,
         error: "Ausencia no encontrada.",
         status: 404,
+      };
+    }
+
+    const manageError = await ensureCanManageEmployee({
+      ctx,
+      targetEmployeeId: existing.employeeId,
+    });
+
+    if (manageError) {
+      return {
+        ...manageError,
+        error: "No tienes permisos para eliminar esta ausencia.",
+        status: 403,
+      };
+    }
+
+    if (
+      ctx.role === "EMPLOYEE" &&
+      existing.employeeId === ctx.employeeId &&
+      existing.status !== AbsenceStatus.PENDING
+    ) {
+      return {
+        ok: false,
+        error: "Solo puedes eliminar tus propias ausencias pendientes.",
+        status: 403,
       };
     }
 

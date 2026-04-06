@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { absenceService } from "../../absence.service";
+import { getRequestContext } from "@/lib/auth/getRequestContext";
 
 type RouteContext = {
   params: Promise<{
@@ -9,8 +10,9 @@ type RouteContext = {
 
 export async function PATCH(_: NextRequest, context: RouteContext) {
   const { id } = await context.params;
+  const ctx = await getRequestContext();
 
-  const result = await absenceService.approve(id);
+  const result = await absenceService.approve(id, ctx);
 
   if (!result.ok) {
     return NextResponse.json(

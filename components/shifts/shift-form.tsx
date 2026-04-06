@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
 
 type Employee = {
   id: string;
@@ -74,6 +75,8 @@ export default function ShiftForm({
   initialEmployeeId,
   initialDate,
 }: Props) {
+  const { user, isLoading: isUserLoading, error: userError } = useCurrentUser();
+
   const [form, setForm] = useState<FormState>(() =>
     buildInitialForm(initialEmployeeId, initialDate)
   );
@@ -89,6 +92,12 @@ export default function ShiftForm({
     () => shiftMasters.find((item) => item.id === form.shiftMasterId) ?? null,
     [shiftMasters, form.shiftMasterId]
   );
+
+  const canManageShifts =
+    user?.role === "ADMIN" || user?.role === "MANAGER";
+
+  const isEmployeeRole = user?.role === "EMPLOYEE";
+  const formDisabled = isSubmitting || isUserLoading || !canManageShifts;
 
   useEffect(() => {
     setForm(buildInitialForm(initialEmployeeId, initialDate));
@@ -185,6 +194,26 @@ export default function ShiftForm({
       setIsSubmitting(true);
       setError(null);
 
+      if (!user) {
+        throw new Error("No se ha podido resolver el usuario actual.");
+      }
+
+      if (!canManageShifts) {
+        throw new Error("No tienes permisos para crear turnos.");
+      }
+
+      if (!form.employeeId) {
+        throw new Error("Debes seleccionar un empleado.");
+      }
+
+      if (!form.shiftMasterId) {
+        throw new Error("Debes seleccionar un maestro de turno.");
+      }
+
+      if (!form.date) {
+        throw new Error("Debes indicar una fecha.");
+      }
+
       const response = await fetch("/api/shifts", {
         method: "POST",
         headers: {
@@ -244,6 +273,14 @@ export default function ShiftForm({
           </button>
         </div>
 
+        {userError ? <div className="error-box">{userError}</div> : null}
+
+        {isEmployeeRole ? (
+          <div className="error-box">
+            Tu perfil no tiene permisos para crear turnos.
+          </div>
+        ) : null}
+
         {isLoadingOptions ? (
           <div className="state-box">
             <p>Cargando opciones del formulario...</p>
@@ -257,6 +294,7 @@ export default function ShiftForm({
                 value={form.employeeId}
                 onChange={(event) => updateField("employeeId", event.target.value)}
                 required
+                disabled={formDisabled}
               >
                 <option value="">Selecciona un empleado</option>
                 {employees.map((employee) => (
@@ -275,6 +313,7 @@ export default function ShiftForm({
                 value={form.date}
                 onChange={(event) => updateField("date", event.target.value)}
                 required
+                disabled={formDisabled}
               />
             </div>
 
@@ -287,6 +326,7 @@ export default function ShiftForm({
                   updateField("shiftMasterId", event.target.value)
                 }
                 required
+                disabled={formDisabled}
               >
                 <option value="">Selecciona un maestro de turno</option>
                 {shiftMasters.map((item) => (
@@ -381,6 +421,7 @@ export default function ShiftForm({
                 onChange={(event) => updateField("notes", event.target.value)}
                 placeholder="Observaciones del turno"
                 rows={4}
+                disabled={formDisabled}
               />
             </div>
 
@@ -399,7 +440,7 @@ export default function ShiftForm({
               <button
                 type="submit"
                 className="button primary"
-                disabled={isSubmitting || isLoadingOptions}
+                disabled={isSubmitting || isLoadingOptions || isUserLoading || !canManageShifts}
               >
                 {isSubmitting ? "Guardando..." : "Crear turno"}
               </button>
@@ -517,6 +558,14 @@ export default function ShiftForm({
         textarea {
           resize: vertical;
           min-height: 100px;
+        }
+
+        input:disabled,
+        select:disabled,
+        textarea:disabled {
+          background: #f8fafc;
+          color: #64748b;
+          cursor: not-allowed;
         }
 
         .shift-master-preview {

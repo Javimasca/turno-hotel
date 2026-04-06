@@ -58,20 +58,28 @@ export const absenceRepository = {
     });
   },
 
-  async findOverlap(params: {
+  /**
+   * Devuelve ausencias candidatas a solape para validación en service.
+   * La lógica fina de conflicto FULL_DAY / HOURLY se resuelve en el service.
+   */
+  async findForOverlapValidation(params: {
     employeeId: string;
     startDate: Date;
     endDate: Date;
     excludeId?: string;
-    statuses: AbsenceStatus[];
+    statuses?: AbsenceStatus[];
   }) {
-    return prisma.absence.findFirst({
+    return prisma.absence.findMany({
       where: {
         employeeId: params.employeeId,
-        status: { in: params.statuses },
-        ...(params.excludeId && {
-          id: { not: params.excludeId },
-        }),
+        status: {
+          in: params.statuses ?? [AbsenceStatus.PENDING, AbsenceStatus.APPROVED],
+        },
+        ...(params.excludeId
+          ? {
+              id: { not: params.excludeId },
+            }
+          : {}),
         AND: [
           {
             startDate: { lte: params.endDate },
@@ -81,6 +89,7 @@ export const absenceRepository = {
           },
         ],
       },
+      orderBy: [{ startDate: "asc" }],
     });
   },
 
@@ -93,11 +102,14 @@ export const absenceRepository = {
       where: {
         employeeId: params.employeeId,
         startAt: {
-          lte: new Date(params.endDate),
+          lte: endOfDay(params.endDate),
         },
         endAt: {
-          gte: new Date(params.startDate),
+          gte: startOfDay(params.startDate),
         },
+      },
+      select: {
+        id: true,
       },
     });
 
@@ -116,3 +128,11 @@ export const absenceRepository = {
     });
   },
 };
+
+function startOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+}
+
+function endOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+}

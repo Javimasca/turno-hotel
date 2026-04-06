@@ -1,12 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-import { absenceService } from "./absence.service";
 import { AbsenceStatus, AbsenceUnit } from "@prisma/client";
+import { absenceService } from "./absence.service";
+import { getRequestContext } from "@/lib/auth/getRequestContext";
 
 function parseDate(value: string | null): Date | undefined {
   if (!value) return undefined;
+
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return undefined;
+
   return date;
+}
+
+function parseOptionalNumber(value: unknown): number | undefined {
+  if (value == null || value === "") return undefined;
+
+  const parsed = Number(value);
+  if (Number.isNaN(parsed)) return undefined;
+
+  return parsed;
 }
 
 function isAbsenceUnit(value: string): value is AbsenceUnit {
@@ -38,6 +50,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+    const ctx = await getRequestContext();
 
     if (!body.employeeId) {
       return NextResponse.json(
@@ -84,19 +97,38 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await absenceService.create({
-      employeeId: body.employeeId,
-      absenceTypeId: body.absenceTypeId,
-      unit: body.unit,
-      startDate,
-      endDate,
-      startMinutes:
-        body.startMinutes == null ? undefined : Number(body.startMinutes),
-      endMinutes: body.endMinutes == null ? undefined : Number(body.endMinutes),
-      status: body.status,
-      notes: body.notes,
-      documentUrl: body.documentUrl,
-    });
+    const startMinutes = parseOptionalNumber(body.startMinutes);
+    const endMinutes = parseOptionalNumber(body.endMinutes);
+
+    if (body.startMinutes != null && startMinutes === undefined) {
+      return NextResponse.json(
+        { error: "startMinutes debe ser un número válido." },
+        { status: 400 }
+      );
+    }
+
+    if (body.endMinutes != null && endMinutes === undefined) {
+      return NextResponse.json(
+        { error: "endMinutes debe ser un número válido." },
+        { status: 400 }
+      );
+    }
+
+    const result = await absenceService.create(
+      {
+        employeeId: body.employeeId,
+        absenceTypeId: body.absenceTypeId,
+        unit: body.unit,
+        startDate,
+        endDate,
+        startMinutes,
+        endMinutes,
+        status: body.status,
+        notes: body.notes,
+        documentUrl: body.documentUrl,
+      },
+      ctx
+    );
 
     if (!result.ok) {
       return NextResponse.json(

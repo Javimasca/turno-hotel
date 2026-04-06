@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { absenceTypeService } from "@/lib/absence-types/absence-type.service";
+import { getRequestContext } from "@/lib/auth/getRequestContext";
 
 function parseBoolean(value: string | null): boolean | undefined {
   if (value === null) return undefined;
@@ -31,8 +32,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
+  const ctx = await getRequestContext();
 
-  const result = await absenceTypeService.create(body);
+  const result = await absenceTypeService.create(body, ctx);
 
   if (!result.ok) {
     return NextResponse.json(

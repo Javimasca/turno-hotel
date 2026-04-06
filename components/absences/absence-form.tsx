@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
 
 type EmployeeOption = {
   id: string;
@@ -25,6 +26,7 @@ type AbsencePayload = {
   endDate: string;
   startMinutes?: number | null;
   endMinutes?: number | null;
+  status?: "PENDING" | "APPROVED";
   notes?: string;
 };
 
@@ -33,6 +35,7 @@ type AbsenceFormProps = {
   onCreated: () => Promise<void> | void;
   initialEmployeeId?: string;
   initialDate?: string;
+  initialEndDate?: string;
 };
 
 export default function AbsenceForm({
@@ -40,15 +43,19 @@ export default function AbsenceForm({
   onCreated,
   initialEmployeeId = "",
   initialDate = "",
+  initialEndDate = "",
 }: AbsenceFormProps) {
+  const { user, isLoading: isUserLoading, error: userError } = useCurrentUser();
+
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [absenceTypes, setAbsenceTypes] = useState<AbsenceTypeOption[]>([]);
 
   const [employeeId, setEmployeeId] = useState(initialEmployeeId);
   const [absenceTypeId, setAbsenceTypeId] = useState("");
   const [unit, setUnit] = useState<"FULL_DAY" | "HOURLY">("FULL_DAY");
+  const [status, setStatus] = useState<"PENDING" | "APPROVED">("PENDING");
   const [startDate, setStartDate] = useState(initialDate);
-  const [endDate, setEndDate] = useState(initialDate);
+  const [endDate, setEndDate] = useState(initialEndDate || initialDate);
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [notes, setNotes] = useState("");
@@ -57,13 +64,31 @@ export default function AbsenceForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const isEmployeeRole = user?.role === "EMPLOYEE";
+  const canApproveDirectly =
+    user?.role === "ADMIN" || user?.role === "MANAGER";
+
   useEffect(() => {
     void loadCatalogs();
   }, []);
 
+  useEffect(() => {
+    if (!user) return;
+
+    if (user.role === "EMPLOYEE") {
+      setEmployeeId(user.employeeId ?? "");
+      setStatus("PENDING");
+    }
+  }, [user]);
+
   const selectedAbsenceType = useMemo(
     () => absenceTypes.find((item) => item.id === absenceTypeId) ?? null,
     [absenceTypeId, absenceTypes]
+  );
+
+  const selectedEmployee = useMemo(
+    () => employees.find((item) => item.id === employeeId) ?? null,
+    [employees, employeeId]
   );
 
   useEffect(() => {
@@ -106,7 +131,8 @@ export default function AbsenceForm({
       }
 
       const employeesData = (await employeesResponse.json()) as EmployeeOption[];
-      const absenceTypesData = (await absenceTypesResponse.json()) as AbsenceTypeOption[];
+      const absenceTypesData =
+        (await absenceTypesResponse.json()) as AbsenceTypeOption[];
 
       setEmployees(
         employeesData
@@ -143,7 +169,15 @@ export default function AbsenceForm({
       setIsSubmitting(true);
       setError(null);
 
-      if (!employeeId) {
+      if (!user) {
+        throw new Error("No se ha podido resolver el usuario actual.");
+      }
+
+      const resolvedEmployeeId = isEmployeeRole
+        ? user.employeeId ?? ""
+        : employeeId;
+
+      if (!resolvedEmployeeId) {
         throw new Error("Debes seleccionar un empleado.");
       }
 
@@ -160,11 +194,12 @@ export default function AbsenceForm({
       }
 
       const payload: AbsencePayload = {
-        employeeId,
+        employeeId: resolvedEmployeeId,
         absenceTypeId,
         unit,
         startDate,
         endDate,
+        status: canApproveDirectly ? status : "PENDING",
         notes: notes.trim() || undefined,
       };
 
@@ -217,6 +252,12 @@ export default function AbsenceForm({
 
   const hourlyDisabled = selectedAbsenceType?.durationMode === "FULL_DAY";
   const fullDayDisabled = selectedAbsenceType?.durationMode === "HOURLY";
+  const employeeFieldDisabled =
+    isLoadingCatalogs || isSubmitting || isUserLoading || isEmployeeRole;
+
+  const selectedEmployeeLabel = selectedEmployee
+    ? `${selectedEmployee.firstName} ${selectedEmployee.lastName}`
+    : "Empleado asignado automáticamente";
 
   return (
     <div className="overlay" onClick={onClose}>
@@ -235,6 +276,12 @@ export default function AbsenceForm({
           </button>
         </div>
 
+        {userError ? (
+          <div className="errorBox">
+            <p>{userError}</p>
+          </div>
+        ) : null}
+
         {error ? (
           <div className="errorBox">
             <p>{error}</p>
@@ -245,19 +292,29 @@ export default function AbsenceForm({
           <div className="grid">
             <div className="field">
               <label htmlFor="employeeId">Empleado</label>
-              <select
-                id="employeeId"
-                value={employeeId}
-                onChange={(event) => setEmployeeId(event.target.value)}
-                disabled={isLoadingCatalogs || isSubmitting}
-              >
-                <option value="">Selecciona un empleado</option>
-                {employees.map((employee) => (
-                  <option key={employee.id} value={employee.id}>
-                    {employee.firstName} {employee.lastName}
-                  </option>
-                ))}
-              </select>
+
+              {isEmployeeRole ? (
+                <input
+                  id="employeeId"
+                  type="text"
+                  value={selectedEmployeeLabel}
+                  disabled
+                />
+              ) : (
+                <select
+                  id="employeeId"
+                  value={employeeId}
+                  onChange={(event) => setEmployeeId(event.target.value)}
+                  disabled={employeeFieldDisabled}
+                >
+                  <option value="">Selecciona un empleado</option>
+                  {employees.map((employee) => (
+                    <option key={employee.id} value={employee.id}>
+                      {employee.firstName} {employee.lastName}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
 
             <div className="field">
@@ -294,6 +351,25 @@ export default function AbsenceForm({
                   Por horas
                 </option>
               </select>
+            </div>
+
+            <div className="field">
+              <label htmlFor="status">Estado</label>
+              {canApproveDirectly ? (
+                <select
+                  id="status"
+                  value={status}
+                  onChange={(event) =>
+                    setStatus(event.target.value as "PENDING" | "APPROVED")
+                  }
+                  disabled={isSubmitting}
+                >
+                  <option value="PENDING">Pendiente</option>
+                  <option value="APPROVED">Aprobada</option>
+                </select>
+              ) : (
+                <input id="status" type="text" value="Pendiente" disabled />
+              )}
             </div>
 
             <div className="field">
@@ -376,7 +452,7 @@ export default function AbsenceForm({
             <button
               type="submit"
               className="primaryButton"
-              disabled={isLoadingCatalogs || isSubmitting}
+              disabled={isLoadingCatalogs || isSubmitting || isUserLoading}
             >
               {isSubmitting ? "Guardando..." : "Crear ausencia"}
             </button>
@@ -507,6 +583,14 @@ export default function AbsenceForm({
         .field textarea {
           resize: vertical;
           min-height: 96px;
+        }
+
+        .field input:disabled,
+        .field select:disabled,
+        .field textarea:disabled {
+          background: #f8fafc;
+          color: #64748b;
+          cursor: not-allowed;
         }
 
         .actions {

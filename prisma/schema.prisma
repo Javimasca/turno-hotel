@@ -57,6 +57,13 @@ enum AbsenceStatus {
   CANCELLED
 }
 
+enum UserRole {
+  ADMIN
+  MANAGER
+  EMPLOYEE
+}
+
+
 model Workplace {
   id          String   @id @default(cuid())
   code        String   @unique
@@ -240,6 +247,7 @@ model Employee {
   employeeDepartments EmployeeDepartment[]
   shifts              Shift[]
   absences            Absence[]
+  user                User?                @relation("UserEmployee")
 
   @@index([lastName, firstName])
   @@index([directManagerEmployeeId])
@@ -420,4 +428,19 @@ model Absence {
 
   @@index([employeeId, startDate, endDate])
   @@index([status])
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String?
+  name         String?
+  role         UserRole  @default(EMPLOYEE)
+  isActive     Boolean   @default(true)
+
+  employeeId   String?   @unique
+  employee     Employee? @relation("UserEmployee", fields: [employeeId], references: [id])
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 }

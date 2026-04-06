@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { absenceService } from "../absence.service";
 import { AbsenceStatus, AbsenceUnit } from "@prisma/client";
+import { absenceService } from "../absence.service";
+import { getRequestContext } from "@/lib/auth/getRequestContext";
 
 type RouteContext = {
   params: Promise<{
@@ -10,9 +11,20 @@ type RouteContext = {
 
 function parseDate(value: string | null): Date | undefined {
   if (!value) return undefined;
+
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return undefined;
+
   return date;
+}
+
+function parseOptionalNumber(value: unknown): number | undefined {
+  if (value == null || value === "") return undefined;
+
+  const parsed = Number(value);
+  if (Number.isNaN(parsed)) return undefined;
+
+  return parsed;
 }
 
 function isAbsenceUnit(value: string): value is AbsenceUnit {
@@ -47,6 +59,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
     const body = await request.json();
+    const ctx = await getRequestContext();
 
     const payload: {
       employeeId?: string;
@@ -62,6 +75,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     } = {};
 
     if (body.employeeId !== undefined) payload.employeeId = body.employeeId;
+
     if (body.absenceTypeId !== undefined) {
       payload.absenceTypeId = body.absenceTypeId;
     }
@@ -73,39 +87,68 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
           { status: 400 }
         );
       }
+
       payload.unit = body.unit;
     }
 
     if (body.startDate !== undefined) {
       const parsed = parseDate(body.startDate);
+
       if (!parsed) {
         return NextResponse.json(
           { error: "startDate no es válida." },
           { status: 400 }
         );
       }
+
       payload.startDate = parsed;
     }
 
     if (body.endDate !== undefined) {
       const parsed = parseDate(body.endDate);
+
       if (!parsed) {
         return NextResponse.json(
           { error: "endDate no es válida." },
           { status: 400 }
         );
       }
+
       payload.endDate = parsed;
     }
 
     if (body.startMinutes !== undefined) {
-      payload.startMinutes =
-        body.startMinutes == null ? null : Number(body.startMinutes);
+      if (body.startMinutes === null) {
+        payload.startMinutes = null;
+      } else {
+        const parsed = parseOptionalNumber(body.startMinutes);
+
+        if (parsed === undefined) {
+          return NextResponse.json(
+            { error: "startMinutes debe ser un número válido." },
+            { status: 400 }
+          );
+        }
+
+        payload.startMinutes = parsed;
+      }
     }
 
     if (body.endMinutes !== undefined) {
-      payload.endMinutes =
-        body.endMinutes == null ? null : Number(body.endMinutes);
+      if (body.endMinutes === null) {
+        payload.endMinutes = null;
+      } else {
+        const parsed = parseOptionalNumber(body.endMinutes);
+
+        if (parsed === undefined) {
+          return NextResponse.json(
+            { error: "endMinutes debe ser un número válido." },
+            { status: 400 }
+          );
+        }
+
+        payload.endMinutes = parsed;
+      }
     }
 
     if (body.status !== undefined) {
@@ -115,13 +158,14 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
           { status: 400 }
         );
       }
+
       payload.status = body.status;
     }
 
     if (body.notes !== undefined) payload.notes = body.notes;
     if (body.documentUrl !== undefined) payload.documentUrl = body.documentUrl;
 
-    const result = await absenceService.update(id, payload);
+    const result = await absenceService.update(id, payload, ctx);
 
     if (!result.ok) {
       return NextResponse.json(
@@ -141,13 +185,14 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
 export async function DELETE(_: NextRequest, context: RouteContext) {
   const { id } = await context.params;
+  const ctx = await getRequestContext();
 
-  const result = await absenceService.delete(id);
+  const result = await absenceService.delete(id, ctx);
 
   if (!result.ok) {
     return NextResponse.json(
       { error: result.error },
-      { status: result.status ?? 404 }
+      { status: result.status ?? 400 }
     );
   }
 

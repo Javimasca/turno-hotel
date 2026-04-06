@@ -201,6 +201,24 @@ export const employeeRepository = {
     });
   },
 
+  async isDirectManagerOf(
+    managerEmployeeId: string,
+    targetEmployeeId: string,
+  ) {
+    const employee = await prisma.employee.findUnique({
+      where: { id: targetEmployeeId },
+      select: {
+        directManagerEmployeeId: true,
+      },
+    });
+
+    if (!employee) {
+      return false;
+    }
+
+    return employee.directManagerEmployeeId === managerEmployeeId;
+  },
+
   findByCode(code: string) {
     return prisma.employee.findUnique({
       where: { code },

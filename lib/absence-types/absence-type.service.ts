@@ -2,6 +2,7 @@ import {
   AbsenceDurationMode,
   AbsenceLegalCategory,
   AbsenceType,
+  UserRole,
 } from "@prisma/client";
 import {
   absenceTypeRepository,
@@ -10,13 +11,22 @@ import {
   UpdateAbsenceTypeInput,
 } from "./absence-type.repository";
 
-type ServiceResult<T> = {
-  ok: true;
-  data: T;
-} | {
-  ok: false;
-  error: string;
-  status?: number;
+type ServiceResult<T> =
+  | {
+      ok: true;
+      data: T;
+    }
+  | {
+      ok: false;
+      error: string;
+      status?: number;
+    };
+
+type RequestContext = {
+  userId: string;
+  role: UserRole;
+  employeeId: string | null;
+  isActive: boolean;
 };
 
 type CreateAbsenceTypeDto = {
@@ -40,12 +50,37 @@ type CreateAbsenceTypeDto = {
 
 type UpdateAbsenceTypeDto = Partial<CreateAbsenceTypeDto>;
 
+function isManagerOrAdmin(role: UserRole): boolean {
+  return role === "ADMIN" || role === "MANAGER";
+}
+
+function canManageAbsenceTypes(role: UserRole): boolean {
+  return isManagerOrAdmin(role);
+}
+
 function normalizeCode(code: string): string {
-  return code.trim().toUpperCase().replace(/\s+/g, "_");
+  const normalized = code.trim().toUpperCase().replace(/\s+/g, "_");
+
+  if (!normalized.length) {
+    throw new Error("El código es obligatorio.");
+  }
+
+  return normalized;
+}
+
+function normalizeName(name: string): string {
+  const normalized = name.trim();
+
+  if (!normalized.length) {
+    throw new Error("El nombre es obligatorio.");
+  }
+
+  return normalized;
 }
 
 function normalizeText(value?: string | null): string | null {
   if (value == null) return null;
+
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
@@ -55,8 +90,11 @@ function normalizeColor(value?: string | null): string | null {
   if (!color) return null;
 
   const hexColorRegex = /^#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{3})$/;
+
   if (!hexColorRegex.test(color)) {
-    throw new Error("El color debe estar en formato hexadecimal válido (#RGB o #RRGGBB).");
+    throw new Error(
+      "El color debe estar en formato hexadecimal válido (#RGB o #RRGGBB)."
+    );
   }
 
   return color;
@@ -78,8 +116,11 @@ function validateRequiredFields(data: CreateAbsenceTypeDto) {
 
 function validateDisplayOrder(displayOrder?: number) {
   if (displayOrder == null) return;
+
   if (!Number.isInteger(displayOrder) || displayOrder < 0) {
-    throw new Error("El orden de visualización debe ser un número entero mayor o igual a 0.");
+    throw new Error(
+      "El orden de visualización debe ser un número entero mayor o igual a 0."
+    );
   }
 }
 
@@ -92,16 +133,12 @@ function validateBusinessRules(data: {
     data.durationMode === AbsenceDurationMode.HOURLY &&
     data.blocksShifts === true
   ) {
-    // No es una regla obligatoria universal, pero te dejo la validación
-    // comentada como opcional por si quieres endurecer comportamiento.
+    // Regla opcional de negocio:
     // throw new Error("Una ausencia solo por horas no debería bloquear turnos completos.");
   }
 
-  if (
-    data.countsAsWorkedTime === true &&
-    data.blocksShifts === true
-  ) {
-    // También opcional según convenio/negocio.
+  if (data.countsAsWorkedTime === true && data.blocksShifts === true) {
+    // Regla opcional de negocio:
     // throw new Error("No parece coherente que compute como tiempo trabajado y a la vez bloquee turnos.");
   }
 }
@@ -112,7 +149,7 @@ function toCreateInput(dto: CreateAbsenceTypeDto): CreateAbsenceTypeInput {
 
   const data: CreateAbsenceTypeInput = {
     code: normalizeCode(dto.code),
-    name: dto.name.trim(),
+    name: normalizeName(dto.name),
     description: normalizeText(dto.description),
     displayOrder: dto.displayOrder ?? 0,
     isActive: dto.isActive ?? true,
@@ -142,16 +179,24 @@ function toUpdateInput(dto: UpdateAbsenceTypeDto): UpdateAbsenceTypeInput {
   const data: UpdateAbsenceTypeInput = {};
 
   if (dto.code !== undefined) data.code = normalizeCode(dto.code);
-  if (dto.name !== undefined) data.name = dto.name.trim();
-  if (dto.description !== undefined) data.description = normalizeText(dto.description);
+  if (dto.name !== undefined) data.name = normalizeName(dto.name);
+  if (dto.description !== undefined) {
+    data.description = normalizeText(dto.description);
+  }
   if (dto.displayOrder !== undefined) data.displayOrder = dto.displayOrder;
   if (dto.isActive !== undefined) data.isActive = dto.isActive;
   if (dto.durationMode !== undefined) data.durationMode = dto.durationMode;
-  if (dto.requiresApproval !== undefined) data.requiresApproval = dto.requiresApproval;
+  if (dto.requiresApproval !== undefined) {
+    data.requiresApproval = dto.requiresApproval;
+  }
   if (dto.isPaid !== undefined) data.isPaid = dto.isPaid;
   if (dto.blocksShifts !== undefined) data.blocksShifts = dto.blocksShifts;
-  if (dto.countsAsWorkedTime !== undefined) data.countsAsWorkedTime = dto.countsAsWorkedTime;
-  if (dto.requiresDocument !== undefined) data.requiresDocument = dto.requiresDocument;
+  if (dto.countsAsWorkedTime !== undefined) {
+    data.countsAsWorkedTime = dto.countsAsWorkedTime;
+  }
+  if (dto.requiresDocument !== undefined) {
+    data.requiresDocument = dto.requiresDocument;
+  }
   if (dto.allowsNotes !== undefined) data.allowsNotes = dto.allowsNotes;
   if (dto.affectsPayroll !== undefined) data.affectsPayroll = dto.affectsPayroll;
   if (dto.color !== undefined) data.color = normalizeColor(dto.color);
@@ -163,8 +208,36 @@ function toUpdateInput(dto: UpdateAbsenceTypeDto): UpdateAbsenceTypeInput {
   return data;
 }
 
+function ensureActiveUser(ctx: RequestContext): ServiceResult<never> | null {
+  if (!ctx.isActive) {
+    return {
+      ok: false,
+      error: "Usuario inactivo.",
+      status: 403,
+    };
+  }
+
+  return null;
+}
+
+function ensureCanManageAbsenceTypes(
+  ctx: RequestContext
+): ServiceResult<never> | null {
+  if (!canManageAbsenceTypes(ctx.role)) {
+    return {
+      ok: false,
+      error: "No tienes permisos para gestionar tipos de ausencia.",
+      status: 403,
+    };
+  }
+
+  return null;
+}
+
 export const absenceTypeService = {
-  async list(filters?: AbsenceTypeListFilters): Promise<ServiceResult<AbsenceType[]>> {
+  async list(
+    filters?: AbsenceTypeListFilters
+  ): Promise<ServiceResult<AbsenceType[]>> {
     const data = await absenceTypeRepository.findAll(filters);
     return { ok: true, data };
   },
@@ -183,8 +256,17 @@ export const absenceTypeService = {
     return { ok: true, data: item };
   },
 
-  async create(dto: CreateAbsenceTypeDto): Promise<ServiceResult<AbsenceType>> {
+  async create(
+    dto: CreateAbsenceTypeDto,
+    ctx: RequestContext
+  ): Promise<ServiceResult<AbsenceType>> {
     try {
+      const inactiveError = ensureActiveUser(ctx);
+      if (inactiveError) return inactiveError;
+
+      const permissionError = ensureCanManageAbsenceTypes(ctx);
+      if (permissionError) return permissionError;
+
       const data = toCreateInput(dto);
 
       const existing = await absenceTypeRepository.findByCode(data.code);
@@ -201,14 +283,27 @@ export const absenceTypeService = {
     } catch (error) {
       return {
         ok: false,
-        error: error instanceof Error ? error.message : "Error al crear el tipo de ausencia.",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Error al crear el tipo de ausencia.",
         status: 400,
       };
     }
   },
 
-  async update(id: string, dto: UpdateAbsenceTypeDto): Promise<ServiceResult<AbsenceType>> {
+  async update(
+    id: string,
+    dto: UpdateAbsenceTypeDto,
+    ctx: RequestContext
+  ): Promise<ServiceResult<AbsenceType>> {
     try {
+      const inactiveError = ensureActiveUser(ctx);
+      if (inactiveError) return inactiveError;
+
+      const permissionError = ensureCanManageAbsenceTypes(ctx);
+      if (permissionError) return permissionError;
+
       const existing = await absenceTypeRepository.findById(id);
 
       if (!existing) {
@@ -223,6 +318,7 @@ export const absenceTypeService = {
 
       if (data.code && data.code !== existing.code) {
         const duplicate = await absenceTypeRepository.findByCode(data.code);
+
         if (duplicate) {
           return {
             ok: false,
@@ -237,13 +333,25 @@ export const absenceTypeService = {
     } catch (error) {
       return {
         ok: false,
-        error: error instanceof Error ? error.message : "Error al actualizar el tipo de ausencia.",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Error al actualizar el tipo de ausencia.",
         status: 400,
       };
     }
   },
 
-  async delete(id: string): Promise<ServiceResult<AbsenceType>> {
+  async delete(
+    id: string,
+    ctx: RequestContext
+  ): Promise<ServiceResult<AbsenceType>> {
+    const inactiveError = ensureActiveUser(ctx);
+    if (inactiveError) return inactiveError;
+
+    const permissionError = ensureCanManageAbsenceTypes(ctx);
+    if (permissionError) return permissionError;
+
     const existing = await absenceTypeRepository.findById(id);
 
     if (!existing) {
@@ -254,7 +362,6 @@ export const absenceTypeService = {
       };
     }
 
-    // Aquí luego podrás sustituir delete por soft delete si lo prefieres.
     const deleted = await absenceTypeRepository.delete(id);
     return { ok: true, data: deleted };
   },

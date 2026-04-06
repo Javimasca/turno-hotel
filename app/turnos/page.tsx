@@ -4,6 +4,8 @@ import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import ShiftForm from "@/components/shifts/shift-form";
 import AbsenceForm from "@/components/absences/absence-form";
+import { DevAuthSwitcher } from "@/components/dev/DevAuthSwitcher";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
 
 type Employee = {
   id: string;
@@ -11,6 +13,18 @@ type Employee = {
   lastName: string;
   photoUrl: string | null;
   isActive: boolean;
+  employeeContracts?: {
+    id: string;
+    startDate: string;
+    createdAt: string;
+    jobCategory: {
+      id: string;
+      code: string;
+      name: string;
+      shortName: string | null;
+      isActive: boolean;
+    } | null;
+  }[];
 };
 
 type WorkplaceOption = {
@@ -109,12 +123,25 @@ type ShiftsApiResponse = {
 
 type CellSelection = {
   employeeId: string;
-  date: Date;
+  startDate: Date;
+  endDate: Date;
 };
 
 const DAY_NAMES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
 export default function TurnosPage() {
+  const { user, isLoading: isUserLoading, error: userError } = useCurrentUser();
+
+  const canManageShifts =
+    user?.role === "ADMIN" || user?.role === "MANAGER";
+
+  const canCreateAbsences =
+    user?.role === "ADMIN" ||
+    user?.role === "MANAGER" ||
+    user?.role === "EMPLOYEE";
+
+  const canOpenCellActions = canManageShifts || canCreateAbsences;
+
   const [currentWeekStart, setCurrentWeekStart] = useState(() =>
     getStartOfWeek(new Date())
   );
@@ -135,6 +162,7 @@ export default function TurnosPage() {
   const [showAbsenceForm, setShowAbsenceForm] = useState(false);
   const [prefillEmployeeId, setPrefillEmployeeId] = useState<string>("");
   const [prefillDate, setPrefillDate] = useState<string>("");
+  const [prefillEndDate, setPrefillEndDate] = useState<string>("");
 
   const [showCellActionModal, setShowCellActionModal] = useState(false);
   const [selectedCell, setSelectedCell] = useState<CellSelection | null>(null);
@@ -314,12 +342,49 @@ export default function TurnosPage() {
       setEmployees(
         employeesData
           .filter((employee) => employee.isActive)
-          .sort((a, b) =>
-            `${a.lastName} ${a.firstName}`.localeCompare(
-              `${b.lastName} ${b.firstName}`,
-              "es"
-            )
-          )
+          .sort((a, b) => {
+            const aCurrentContract = a.employeeContracts?.[0] ?? null;
+            const bCurrentContract = b.employeeContracts?.[0] ?? null;
+
+            const aCategoryName = aCurrentContract?.jobCategory?.name?.trim() || "ZZZ";
+            const bCategoryName = bCurrentContract?.jobCategory?.name?.trim() || "ZZZ";
+
+            const categoryCompare = aCategoryName.localeCompare(bCategoryName, "es");
+            if (categoryCompare !== 0) {
+              return categoryCompare;
+            }
+
+            const aOldestContractDate = [...(a.employeeContracts ?? [])]
+              .sort(
+                (x, y) =>
+                  new Date(x.startDate).getTime() - new Date(y.startDate).getTime()
+              )[0]?.startDate;
+
+            const bOldestContractDate = [...(b.employeeContracts ?? [])]
+              .sort(
+                (x, y) =>
+                  new Date(x.startDate).getTime() - new Date(y.startDate).getTime()
+              )[0]?.startDate;
+
+            const aSeniority = aOldestContractDate
+              ? new Date(aOldestContractDate).getTime()
+              : Number.MAX_SAFE_INTEGER;
+
+            const bSeniority = bOldestContractDate
+              ? new Date(bOldestContractDate).getTime()
+              : Number.MAX_SAFE_INTEGER;
+
+            if (aSeniority !== bSeniority) {
+              return aSeniority - bSeniority;
+            }
+
+            const lastNameCompare = a.lastName.localeCompare(b.lastName, "es");
+            if (lastNameCompare !== 0) {
+              return lastNameCompare;
+            }
+
+            return a.firstName.localeCompare(b.firstName, "es");
+          })
       );
 
       setShifts(shiftsData.shifts);
@@ -407,6 +472,8 @@ export default function TurnosPage() {
   }
 
   function handleOpenShiftForm(employeeId?: string, date?: Date) {
+    if (!canManageShifts) return;
+
     setPrefillEmployeeId(employeeId ?? "");
     setPrefillDate(date ? toInputDate(date) : "");
     setShowForm(true);
@@ -416,9 +483,12 @@ export default function TurnosPage() {
     setShowForm(false);
     setPrefillEmployeeId("");
     setPrefillDate("");
+    setPrefillEndDate("");
   }
 
   function handleOpenAbsenceForm(employeeId?: string, date?: Date) {
+    if (!canCreateAbsences) return;
+
     setPrefillEmployeeId(employeeId ?? "");
     setPrefillDate(date ? toInputDate(date) : "");
     setShowAbsenceForm(true);
@@ -428,10 +498,18 @@ export default function TurnosPage() {
     setShowAbsenceForm(false);
     setPrefillEmployeeId("");
     setPrefillDate("");
+    setPrefillEndDate("");
   }
 
   function handleCellClick(employeeId: string, date: Date) {
-    setSelectedCell({ employeeId, date });
+    if (!canOpenCellActions) return;
+
+    setSelectedCell({
+      employeeId,
+      startDate: date,
+      endDate: date,
+    });
+
     setShowCellActionModal(true);
   }
 
@@ -441,18 +519,21 @@ export default function TurnosPage() {
   }
 
   function handleCreateShiftFromCell() {
-    if (!selectedCell) return;
+    if (!selectedCell || !canManageShifts) return;
 
     setShowCellActionModal(false);
-    handleOpenShiftForm(selectedCell.employeeId, selectedCell.date);
+    handleOpenShiftForm(selectedCell.employeeId, selectedCell.startDate);
     setSelectedCell(null);
   }
 
-   function handleCreateAbsenceFromCell() {
-    if (!selectedCell) return;
+  function handleCreateAbsenceFromCell() {
+    if (!selectedCell || !canCreateAbsences) return;
 
     setShowCellActionModal(false);
-    handleOpenAbsenceForm(selectedCell.employeeId, selectedCell.date);
+    setPrefillEmployeeId(selectedCell.employeeId);
+    setPrefillDate(toInputDate(selectedCell.startDate));
+    setPrefillEndDate(toInputDate(selectedCell.endDate));
+    setShowAbsenceForm(true);
     setSelectedCell(null);
   }
 
@@ -463,6 +544,22 @@ export default function TurnosPage() {
   return (
     <>
       <div className="page-shell">
+        {process.env.NODE_ENV === "development" && <DevAuthSwitcher />}
+
+        {userError ? (
+          <div className="state-card error">
+            <p>{userError}</p>
+          </div>
+        ) : null}
+
+        {!isUserLoading && user?.role === "EMPLOYEE" ? (
+          <div className="state-card info">
+            <p>
+              Estás viendo el cuadrante como empleado. La creación de turnos no está disponible.
+            </p>
+          </div>
+        ) : null}
+
         <div className="page-header">
           <div>
             <p className="page-eyebrow">TURNOHOTEL</p>
@@ -473,9 +570,15 @@ export default function TurnosPage() {
           </div>
 
           <div className="toolbar">
-            <button className="toolbar-button primary" onClick={() => handleOpenShiftForm()}>
-              + Nuevo registro
-            </button>
+            {canManageShifts ? (
+              <button
+                className="toolbar-button primary"
+                onClick={() => handleOpenShiftForm()}
+                disabled={isUserLoading}
+              >
+                + Nuevo registro
+              </button>
+            ) : null}
 
             <button className="toolbar-button secondary" onClick={goToPreviousWeek}>
               ← Semana anterior
@@ -651,7 +754,22 @@ export default function TurnosPage() {
                   weekDays={weekDays}
                   shifts={filteredShifts.filter((shift) => shift.employeeId === employee.id)}
                   absences={absences.filter((absence) => absence.employeeId === employee.id)}
+                  canInteract={canOpenCellActions}
                   onDayClick={(day) => handleCellClick(employee.id, day)}
+                  onRangeSelect={(start, end) => {
+                    if (!canOpenCellActions) return;
+
+                    const normalizedStart = start <= end ? start : end;
+                    const normalizedEnd = start <= end ? end : start;
+
+                    setSelectedCell({
+                      employeeId: employee.id,
+                      startDate: normalizedStart,
+                      endDate: normalizedEnd,
+                    });
+
+                    setShowCellActionModal(true);
+                  }}
                 />
               ))}
             </div>
@@ -665,7 +783,7 @@ export default function TurnosPage() {
         ) : null}
       </div>
 
-            {showForm ? (
+      {showForm ? (
         <ShiftForm
           onClose={handleCloseShiftForm}
           onCreated={handleCreated}
@@ -680,6 +798,7 @@ export default function TurnosPage() {
           onCreated={handleCreated}
           initialEmployeeId={prefillEmployeeId}
           initialDate={prefillDate}
+          initialEndDate={prefillEndDate}
         />
       ) : null}
 
@@ -697,27 +816,31 @@ export default function TurnosPage() {
             </div>
 
             <div className="cell-action-body">
-              <button
-                type="button"
-                className="cell-action-option"
-                onClick={handleCreateShiftFromCell}
-              >
-                <span className="cell-action-option-title">Crear turno</span>
-                <span className="cell-action-option-text">
-                  Abrir el formulario de turno con empleado y fecha precargados.
-                </span>
-              </button>
+              {canManageShifts ? (
+                <button
+                  type="button"
+                  className="cell-action-option"
+                  onClick={handleCreateShiftFromCell}
+                >
+                  <span className="cell-action-option-title">Crear turno</span>
+                  <span className="cell-action-option-text">
+                    Abrir el formulario de turno con empleado y fecha precargados.
+                  </span>
+                </button>
+              ) : null}
 
-              <button
-                type="button"
-                className="cell-action-option"
-                onClick={handleCreateAbsenceFromCell}
-              >
-                <span className="cell-action-option-title">Crear ausencia</span>
-                <span className="cell-action-option-text">
-                  Preparado para abrir el formulario de ausencia en el siguiente paso.
-                </span>
-              </button>
+              {canCreateAbsences ? (
+                <button
+                  type="button"
+                  className="cell-action-option"
+                  onClick={handleCreateAbsenceFromCell}
+                >
+                  <span className="cell-action-option-title">Crear ausencia</span>
+                  <span className="cell-action-option-text">
+                    Abrir el formulario de ausencia con empleado y fecha precargados.
+                  </span>
+                </button>
+              ) : null}
             </div>
 
             <div className="cell-action-footer">
@@ -958,6 +1081,12 @@ export default function TurnosPage() {
           color: #991b1b;
         }
 
+        .state-card.info {
+          border-color: #cbd5e1;
+          background: #f8fafc;
+          color: #334155;
+        }
+
         .planner-card {
           overflow-x: hidden;
           overflow-y: auto;
@@ -1149,7 +1278,9 @@ type WeeklyEmployeeRowProps = {
   weekDays: Date[];
   shifts: Shift[];
   absences: Absence[];
+  canInteract: boolean;
   onDayClick: (day: Date) => void;
+  onRangeSelect?: (start: Date, end: Date) => void;
 };
 
 function WeeklyEmployeeRow({
@@ -1157,8 +1288,23 @@ function WeeklyEmployeeRow({
   weekDays,
   shifts,
   absences,
+  canInteract,
   onDayClick,
+  onRangeSelect,
 }: WeeklyEmployeeRowProps) {
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [selectionStart, setSelectionStart] = useState<Date | null>(null);
+  const [selectionEnd, setSelectionEnd] = useState<Date | null>(null);
+
+  function isInRange(day: Date) {
+    if (!selectionStart || !selectionEnd) return false;
+
+    const start = selectionStart < selectionEnd ? selectionStart : selectionEnd;
+    const end = selectionStart > selectionEnd ? selectionStart : selectionEnd;
+
+    return day >= startOfDay(start) && day <= endOfDay(end);
+  }
+
   return (
     <>
       <div className="employee-cell">
@@ -1223,9 +1369,33 @@ function WeeklyEmployeeRow({
           <button
             key={`${employee.id}-${day.toISOString()}`}
             type="button"
-            className="day-cell"
-            onClick={() => onDayClick(day)}
-            title="Crear turno o ausencia en este día"
+            className={`day-cell ${isInRange(day) ? "selecting" : ""} ${canInteract ? "" : "readonly"}`}
+            onMouseDown={() => {
+              if (!canInteract) return;
+              setIsSelecting(true);
+              setSelectionStart(day);
+              setSelectionEnd(day);
+            }}
+            onMouseEnter={() => {
+              if (isSelecting && canInteract) {
+                setSelectionEnd(day);
+              }
+            }}
+            onMouseUp={() => {
+              if (!canInteract || !selectionStart) return;
+
+              setIsSelecting(false);
+
+              if (selectionStart.getTime() === day.getTime()) {
+                onDayClick(day);
+              } else {
+                onRangeSelect?.(selectionStart, day);
+              }
+
+              setSelectionStart(null);
+              setSelectionEnd(null);
+            }}
+            title={canInteract ? "Crear turno o ausencia" : "Solo lectura"}
           >
             {dayAbsence ? (
               <div
@@ -1379,6 +1549,20 @@ function WeeklyEmployeeRow({
 
         .day-cell:hover {
           background: #f8fafc;
+        }
+
+        .day-cell.readonly {
+          cursor: default;
+        }
+
+        .day-cell.readonly:hover {
+          background: #ffffff;
+        }
+
+        .day-cell.selecting {
+          background: #fef3c7;
+          outline: 2px solid #f59e0b;
+          outline-offset: -2px;
         }
 
         .empty-day {
