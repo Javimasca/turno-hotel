@@ -8,6 +8,8 @@ type CurrentUser = {
   role: UserRole;
   employeeId: string | null;
   isActive: boolean;
+  email: string;
+  name: string | null;
 };
 
 type UseCurrentUserResult = {
@@ -29,9 +31,17 @@ export function useCurrentUser(): UseCurrentUserResult {
         setIsLoading(true);
         setError(null);
 
-        const response = await fetch("/api/dev-auth/me", {
+        const response = await fetch("/api/auth/me", {
           cache: "no-store",
+          credentials: "include",
         });
+
+        if (response.status === 401) {
+          if (!cancelled) {
+            setUser(null);
+          }
+          return;
+        }
 
         if (!response.ok) {
           throw new Error("No se pudo cargar el usuario actual.");

@@ -1,56 +1,86 @@
-import Link from 'next/link'
+"use client";
 
-const mainAreas = [
+import Link from "next/link";
+import { useMemo } from "react";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
+
+type FrontendUserRole = "ADMIN" | "MANAGER" | "EMPLOYEE";
+
+const mainAreas: {
+  href: string;
+  title: string;
+  description: string;
+  roles: FrontendUserRole[];
+}[] = [
   {
-    href: '/maestros',
-    title: 'Maestros',
+    href: "/maestros",
+    title: "Maestros",
     description:
-      'Configuramos lugares de trabajo, departamentos, categorías laborales y turnos maestros.',
+      "Configuramos lugares de trabajo, departamentos, categorías laborales y turnos maestros.",
+    roles: ["ADMIN"],
   },
   {
-    href: '/empleados',
-    title: 'Empleados',
+    href: "/empleados",
+    title: "Empleados",
     description:
-      'Gestionamos fichas de trabajadores, categoría, antigüedad, parcialidad y asignaciones.',
+      "Gestionamos fichas de trabajadores, categoría, antigüedad, parcialidad y asignaciones.",
+    roles: ["ADMIN", "MANAGER"],
   },
   {
-    href: '/turnos',
-    title: 'Cuadrantes',
+    href: "/turnos",
+    title: "Cuadrantes",
     description:
-      'Accedemos al cuadrante operativo para consultar y organizar turnos del personal.',
+      "Accedemos al cuadrante operativo para consultar y organizar turnos del personal.",
+    roles: ["ADMIN", "MANAGER", "EMPLOYEE"],
   },
   {
-    href: '/planificacion',
-    title: 'Planificación',
+    href: "/planificacion",
+    title: "Planificación",
     description:
-      'Organizamos turnos diarios con vista por día, semana y mes, filtros y validaciones.',
+      "Organizamos turnos diarios con vista por día, semana y mes, filtros y validaciones.",
+    roles: ["ADMIN", "MANAGER"],
   },
-]
+];
 
 const highlights = [
   {
-    label: 'Lugares de trabajo',
-    value: 'Hoteles',
-    text: 'Base preparada para gestionar más de un centro operativo.',
+    label: "Lugares de trabajo",
+    value: "Hoteles",
+    text: "Base preparada para gestionar más de un centro operativo.",
   },
   {
-    label: 'Departamentos',
-    value: 'Áreas',
-    text: 'Recepción, pisos, cocina, mantenimiento y cualquier estructura futura.',
+    label: "Departamentos",
+    value: "Áreas",
+    text: "Recepción, pisos, cocina, mantenimiento y cualquier estructura futura.",
   },
   {
-    label: 'Turnos',
-    value: 'Plantillas',
-    text: 'Separación clara entre turno maestro y turno planificado diario.',
+    label: "Turnos",
+    value: "Plantillas",
+    text: "Separación clara entre turno maestro y turno planificado diario.",
   },
   {
-    label: 'Empleados',
-    value: 'Ficha completa',
-    text: 'Con categoría laboral, antigüedad, parcialidad y asignaciones.',
+    label: "Empleados",
+    value: "Ficha completa",
+    text: "Con categoría laboral, antigüedad, parcialidad y asignaciones.",
   },
-]
+];
 
 export default function HomePage() {
+  const { user, isLoading: isUserLoading, error: userError } = useCurrentUser();
+
+  const visibleMainAreas = useMemo(() => {
+    if (!user || !user.isActive) {
+      return [];
+    }
+
+    return mainAreas.filter((area) => area.roles.includes(user.role));
+  }, [user]);
+
+  const canAccessMaestros =
+    user?.isActive === true && user.role === "ADMIN";
+
+  const canAccessTurnos = user?.isActive === true;
+
   return (
     <main>
       <section className="app-section">
@@ -72,14 +102,30 @@ export default function HomePage() {
                 Puerto Antilla.
               </p>
 
-              <div className="page-actions" style={{ marginTop: '24px' }}>
-                <Link href="/maestros" className="button button-primary">
-                  Entrar en maestros
-                </Link>
+              {userError ? (
+                <div className="home-message error" style={{ marginTop: "16px" }}>
+                  {userError}
+                </div>
+              ) : null}
 
-                <Link href="/turnos" className="button button-secondary">
-                  Abrir cuadrantes
-                </Link>
+              {!isUserLoading && user?.isActive === false ? (
+                <div className="home-message warning" style={{ marginTop: "16px" }}>
+                  Tu usuario está inactivo. No tienes acceso operativo a los módulos.
+                </div>
+              ) : null}
+
+              <div className="page-actions" style={{ marginTop: "24px" }}>
+                {canAccessMaestros ? (
+                  <Link href="/maestros" className="button button-primary">
+                    Entrar en maestros
+                  </Link>
+                ) : null}
+
+                {canAccessTurnos ? (
+                  <Link href="/turnos" className="button button-secondary">
+                    Abrir cuadrantes
+                  </Link>
+                ) : null}
               </div>
             </div>
           </div>
@@ -99,15 +145,25 @@ export default function HomePage() {
             </div>
           </header>
 
-          <div className="nav-grid">
-            {mainAreas.map((area) => (
-              <Link key={area.href} href={area.href} className="nav-card">
-                <h3 className="nav-card-title">{area.title}</h3>
-                <p className="nav-card-text">{area.description}</p>
-                <span className="nav-card-link">Acceder</span>
-              </Link>
-            ))}
-          </div>
+          {isUserLoading ? (
+            <div className="home-message info">
+              Cargando accesos disponibles...
+            </div>
+          ) : visibleMainAreas.length > 0 ? (
+            <div className="nav-grid">
+              {visibleMainAreas.map((area) => (
+                <Link key={area.href} href={area.href} className="nav-card">
+                  <h3 className="nav-card-title">{area.title}</h3>
+                  <p className="nav-card-text">{area.description}</p>
+                  <span className="nav-card-link">Acceder</span>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <div className="home-message info">
+              No hay áreas disponibles para tu perfil en esta pantalla.
+            </div>
+          )}
         </div>
       </section>
 
@@ -155,7 +211,7 @@ export default function HomePage() {
                     <span className="status-chip status-published">
                       maestros
                     </span>
-                    <p style={{ margin: '12px 0 0' }}>
+                    <p style={{ margin: "12px 0 0" }}>
                       Lugares de trabajo, departamentos, categorías laborales y
                       turnos maestros como base de configuración.
                     </p>
@@ -165,7 +221,7 @@ export default function HomePage() {
                     <span className="status-chip status-published">
                       empleados
                     </span>
-                    <p style={{ margin: '12px 0 0' }}>
+                    <p style={{ margin: "12px 0 0" }}>
                       Cada trabajador tendrá su ficha con datos laborales y las
                       asignaciones que condicionan qué turnos puede realizar.
                     </p>
@@ -175,7 +231,7 @@ export default function HomePage() {
                     <span className="status-chip status-published">
                       cuadrantes
                     </span>
-                    <p style={{ margin: '12px 0 0' }}>
+                    <p style={{ margin: "12px 0 0" }}>
                       El cuadrante será la vista operativa principal para
                       organizar equipos, coberturas y turnos por periodo.
                     </p>
@@ -185,7 +241,7 @@ export default function HomePage() {
                     <span className="status-chip status-published">
                       planificación
                     </span>
-                    <p style={{ margin: '12px 0 0' }}>
+                    <p style={{ margin: "12px 0 0" }}>
                       La operación diaria se construye sobre turnos reales con
                       filtros, validaciones y vistas por fecha.
                     </p>
@@ -236,6 +292,32 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      <style jsx>{`
+        .home-message {
+          border-radius: 12px;
+          padding: 12px 14px;
+          font-size: 14px;
+        }
+
+        .home-message.info {
+          border: 1px solid #cbd5e1;
+          background: #f8fafc;
+          color: #334155;
+        }
+
+        .home-message.warning {
+          border: 1px solid #fde68a;
+          background: #fffbeb;
+          color: #92400e;
+        }
+
+        .home-message.error {
+          border: 1px solid #fecaca;
+          background: #fff7f7;
+          color: #991b1b;
+        }
+      `}</style>
     </main>
-  )
+  );
 }

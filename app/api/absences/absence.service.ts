@@ -202,6 +202,30 @@ function ensureActiveUser(ctx: RequestContext): ServiceError | null {
   return null;
 }
 
+async function getReadableEmployeeIds(ctx: RequestContext): Promise<string[]> {
+  if (!ctx.isActive) {
+    return [];
+  }
+
+  if (ctx.role === "ADMIN") {
+    return [];
+  }
+
+  if (!ctx.employeeId) {
+    return [];
+  }
+
+  if (ctx.role === "EMPLOYEE") {
+    return [ctx.employeeId];
+  }
+
+  const subordinates = await absenceRepository.findEmployeesByDirectManagerId(
+    ctx.employeeId
+  );
+
+  return [ctx.employeeId, ...subordinates.map((employee) => employee.id)];
+}
+
 async function ensureCanManageEmployee(params: {
   ctx: RequestContext;
   targetEmployeeId: string;
@@ -275,8 +299,25 @@ async function validateFullDayApprovalConflicts(absence: {
 }
 
 export const absenceService = {
-  async list(): Promise<ServiceResult<Absence[]>> {
-    const data = await absenceRepository.findAll();
+  async list(ctx: RequestContext): Promise<ServiceResult<Absence[]>> {
+    const inactiveError = ensureActiveUser(ctx);
+    if (inactiveError) return inactiveError;
+
+    if (ctx.role === "ADMIN") {
+      const data = await absenceRepository.findAll();
+      return { ok: true, data };
+    }
+
+    const readableEmployeeIds = await getReadableEmployeeIds(ctx);
+
+    if (readableEmployeeIds.length === 0) {
+      return { ok: true, data: [] };
+    }
+
+    const data = await absenceRepository.findAll({
+      employeeIds: readableEmployeeIds,
+    });
+
     return { ok: true, data };
   },
 

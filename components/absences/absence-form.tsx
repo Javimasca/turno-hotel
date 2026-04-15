@@ -2,12 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import {
+  canCreateAbsenceForEmployeeFrontend,
+  type FrontendPermissionUser,
+} from "@/lib/permissions/canManageEmployeeFrontend";
 
 type EmployeeOption = {
   id: string;
   firstName: string;
   lastName: string;
   isActive: boolean;
+  directManagerEmployeeId: string | null;
 };
 
 type AbsenceTypeOption = {
@@ -38,6 +43,8 @@ type AbsenceFormProps = {
   initialEndDate?: string;
 };
 
+type CurrentUser = FrontendPermissionUser;
+
 export default function AbsenceForm({
   onClose,
   onCreated,
@@ -65,12 +72,32 @@ export default function AbsenceForm({
   const [error, setError] = useState<string | null>(null);
 
   const isEmployeeRole = user?.role === "EMPLOYEE";
+  const isInactiveUser = user?.isActive === false;
+
   const canApproveDirectly =
-    user?.role === "ADMIN" || user?.role === "MANAGER";
+    user?.isActive === true &&
+    (user.role === "ADMIN" || user.role === "MANAGER");
 
   useEffect(() => {
     void loadCatalogs();
   }, []);
+
+  useEffect(() => {
+    setEmployeeId(initialEmployeeId);
+    setStartDate(initialDate);
+    setEndDate(initialEndDate || initialDate);
+  }, [initialEmployeeId, initialDate, initialEndDate]);
+
+  const manageableEmployees = useMemo(() => {
+  return employees.filter((employee) =>
+    canCreateAbsenceForEmployeeFrontend(user, employee)
+  );
+}, [employees, user]);
+
+  const allowedEmployeeIds = useMemo(
+    () => new Set(manageableEmployees.map((employee) => employee.id)),
+    [manageableEmployees]
+  );
 
   useEffect(() => {
     if (!user) return;
@@ -80,6 +107,28 @@ export default function AbsenceForm({
       setStatus("PENDING");
     }
   }, [user]);
+
+  useEffect(() => {
+    if (user?.role === "EMPLOYEE") {
+      return;
+    }
+
+    setEmployeeId((prev) => {
+      if (!prev) {
+        if (initialEmployeeId && allowedEmployeeIds.has(initialEmployeeId)) {
+          return initialEmployeeId;
+        }
+
+        return "";
+      }
+
+      if (!allowedEmployeeIds.has(prev)) {
+        return "";
+      }
+
+      return prev;
+    });
+  }, [user, initialEmployeeId, allowedEmployeeIds]);
 
   const selectedAbsenceType = useMemo(
     () => absenceTypes.find((item) => item.id === absenceTypeId) ?? null,
@@ -173,12 +222,20 @@ export default function AbsenceForm({
         throw new Error("No se ha podido resolver el usuario actual.");
       }
 
+      if (!user.isActive) {
+        throw new Error("Tu usuario está inactivo.");
+      }
+
       const resolvedEmployeeId = isEmployeeRole
         ? user.employeeId ?? ""
         : employeeId;
 
       if (!resolvedEmployeeId) {
         throw new Error("Debes seleccionar un empleado.");
+      }
+
+      if (!allowedEmployeeIds.has(resolvedEmployeeId)) {
+        throw new Error("No tienes permisos para registrar ausencias a este empleado.");
       }
 
       if (!absenceTypeId) {
@@ -252,8 +309,13 @@ export default function AbsenceForm({
 
   const hourlyDisabled = selectedAbsenceType?.durationMode === "FULL_DAY";
   const fullDayDisabled = selectedAbsenceType?.durationMode === "HOURLY";
+
   const employeeFieldDisabled =
-    isLoadingCatalogs || isSubmitting || isUserLoading || isEmployeeRole;
+    isLoadingCatalogs ||
+    isSubmitting ||
+    isUserLoading ||
+    isEmployeeRole ||
+    isInactiveUser;
 
   const selectedEmployeeLabel = selectedEmployee
     ? `${selectedEmployee.firstName} ${selectedEmployee.lastName}`
@@ -279,6 +341,24 @@ export default function AbsenceForm({
         {userError ? (
           <div className="errorBox">
             <p>{userError}</p>
+          </div>
+        ) : null}
+
+        {isInactiveUser ? (
+          <div className="errorBox">
+            <p>Tu usuario está inactivo y no puede registrar ausencias.</p>
+          </div>
+        ) : null}
+
+        {!isUserLoading && user?.role === "MANAGER" ? (
+          <div className="infoBox">
+            <p>Solo puedes registrar ausencias para ti y tus subordinados directos.</p>
+          </div>
+        ) : null}
+
+        {!isUserLoading && user?.role === "EMPLOYEE" ? (
+          <div className="infoBox">
+            <p>Solo puedes registrar ausencias para tu propia ficha.</p>
           </div>
         ) : null}
 
@@ -308,7 +388,7 @@ export default function AbsenceForm({
                   disabled={employeeFieldDisabled}
                 >
                   <option value="">Selecciona un empleado</option>
-                  {employees.map((employee) => (
+                  {manageableEmployees.map((employee) => (
                     <option key={employee.id} value={employee.id}>
                       {employee.firstName} {employee.lastName}
                     </option>
@@ -323,7 +403,7 @@ export default function AbsenceForm({
                 id="absenceTypeId"
                 value={absenceTypeId}
                 onChange={(event) => setAbsenceTypeId(event.target.value)}
-                disabled={isLoadingCatalogs || isSubmitting}
+                disabled={isLoadingCatalogs || isSubmitting || isInactiveUser}
               >
                 <option value="">Selecciona un tipo</option>
                 {absenceTypes.map((absenceType) => (
@@ -342,7 +422,7 @@ export default function AbsenceForm({
                 onChange={(event) =>
                   setUnit(event.target.value as "FULL_DAY" | "HOURLY")
                 }
-                disabled={isSubmitting}
+                disabled={isSubmitting || isInactiveUser}
               >
                 <option value="FULL_DAY" disabled={fullDayDisabled}>
                   Día completo
@@ -362,7 +442,7 @@ export default function AbsenceForm({
                   onChange={(event) =>
                     setStatus(event.target.value as "PENDING" | "APPROVED")
                   }
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || isInactiveUser}
                 >
                   <option value="PENDING">Pendiente</option>
                   <option value="APPROVED">Aprobada</option>
@@ -385,7 +465,7 @@ export default function AbsenceForm({
                     setEndDate(value);
                   }
                 }}
-                disabled={isSubmitting}
+                disabled={isSubmitting || isInactiveUser}
               />
             </div>
 
@@ -396,7 +476,7 @@ export default function AbsenceForm({
                 type="date"
                 value={endDate}
                 onChange={(event) => setEndDate(event.target.value)}
-                disabled={isSubmitting || unit === "HOURLY"}
+                disabled={isSubmitting || unit === "HOURLY" || isInactiveUser}
               />
             </div>
 
@@ -409,7 +489,7 @@ export default function AbsenceForm({
                     type="time"
                     value={startTime}
                     onChange={(event) => setStartTime(event.target.value)}
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || isInactiveUser}
                   />
                 </div>
 
@@ -420,7 +500,7 @@ export default function AbsenceForm({
                     type="time"
                     value={endTime}
                     onChange={(event) => setEndTime(event.target.value)}
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || isInactiveUser}
                   />
                 </div>
               </>
@@ -434,7 +514,7 @@ export default function AbsenceForm({
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
                 placeholder="Añade una observación si aplica"
-                disabled={isSubmitting}
+                disabled={isSubmitting || isInactiveUser}
               />
             </div>
           </div>
@@ -452,7 +532,7 @@ export default function AbsenceForm({
             <button
               type="submit"
               className="primaryButton"
-              disabled={isLoadingCatalogs || isSubmitting || isUserLoading}
+              disabled={isLoadingCatalogs || isSubmitting || isUserLoading || isInactiveUser}
             >
               {isSubmitting ? "Guardando..." : "Crear ausencia"}
             </button>
@@ -531,6 +611,16 @@ export default function AbsenceForm({
           border: 1px solid #fecaca;
           background: #fff7f7;
           color: #991b1b;
+          font-size: 13px;
+        }
+
+        .infoBox {
+          margin: 16px 20px 0 20px;
+          padding: 12px 14px;
+          border-radius: 12px;
+          border: 1px solid #cbd5e1;
+          background: #f8fafc;
+          color: #334155;
           font-size: 13px;
         }
 
@@ -650,3 +740,4 @@ export default function AbsenceForm({
     </div>
   );
 }
+

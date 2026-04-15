@@ -2,12 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import {
+  canManageShiftsForEmployeeFrontend,
+  type FrontendPermissionUser,
+} from "@/lib/permissions/canManageEmployeeFrontend";
 
 type Employee = {
   id: string;
   firstName: string;
   lastName: string;
   isActive: boolean;
+  directManagerEmployeeId: string | null;
 };
 
 type Workplace = {
@@ -57,6 +62,8 @@ type FormState = {
   notes: string;
 };
 
+type CurrentUser = FrontendPermissionUser;
+
 function buildInitialForm(
   initialEmployeeId?: string,
   initialDate?: string
@@ -94,9 +101,23 @@ export default function ShiftForm({
   );
 
   const canManageShifts =
-    user?.role === "ADMIN" || user?.role === "MANAGER";
+    user?.isActive === true &&
+    (user.role === "ADMIN" || user.role === "MANAGER");
 
   const isEmployeeRole = user?.role === "EMPLOYEE";
+  const isInactiveUser = user?.isActive === false;
+
+  const manageableEmployees = useMemo(() => {
+  return employees.filter((employee) =>
+    canManageShiftsForEmployeeFrontend(user, employee)
+  );
+}, [employees, user]);
+
+  const allowedEmployeeIds = useMemo(
+    () => new Set(manageableEmployees.map((employee) => employee.id)),
+    [manageableEmployees]
+  );
+
   const formDisabled = isSubmitting || isUserLoading || !canManageShifts;
 
   useEffect(() => {
@@ -106,6 +127,33 @@ export default function ShiftForm({
   useEffect(() => {
     void loadInitialOptions();
   }, []);
+
+  useEffect(() => {
+    setForm((prev) => {
+      if (!prev.employeeId) {
+        if (
+          initialEmployeeId &&
+          allowedEmployeeIds.has(initialEmployeeId)
+        ) {
+          return {
+            ...prev,
+            employeeId: initialEmployeeId,
+          };
+        }
+
+        return prev;
+      }
+
+      if (!allowedEmployeeIds.has(prev.employeeId)) {
+        return {
+          ...prev,
+          employeeId: "",
+        };
+      }
+
+      return prev;
+    });
+  }, [allowedEmployeeIds, initialEmployeeId]);
 
   async function loadInitialOptions() {
     try {
@@ -198,12 +246,20 @@ export default function ShiftForm({
         throw new Error("No se ha podido resolver el usuario actual.");
       }
 
+      if (!user.isActive) {
+        throw new Error("Tu usuario está inactivo.");
+      }
+
       if (!canManageShifts) {
         throw new Error("No tienes permisos para crear turnos.");
       }
 
       if (!form.employeeId) {
         throw new Error("Debes seleccionar un empleado.");
+      }
+
+      if (!allowedEmployeeIds.has(form.employeeId)) {
+        throw new Error("No tienes permisos para crear turnos a este empleado.");
       }
 
       if (!form.shiftMasterId) {
@@ -275,9 +331,21 @@ export default function ShiftForm({
 
         {userError ? <div className="error-box">{userError}</div> : null}
 
+        {isInactiveUser ? (
+          <div className="error-box">
+            Tu usuario está inactivo y no puede crear turnos.
+          </div>
+        ) : null}
+
         {isEmployeeRole ? (
           <div className="error-box">
             Tu perfil no tiene permisos para crear turnos.
+          </div>
+        ) : null}
+
+        {!isUserLoading && user?.role === "MANAGER" ? (
+          <div className="state-box compact">
+            Solo puedes crear turnos para ti y tus subordinados directos.
           </div>
         ) : null}
 
@@ -297,7 +365,7 @@ export default function ShiftForm({
                 disabled={formDisabled}
               >
                 <option value="">Selecciona un empleado</option>
-                {employees.map((employee) => (
+                {manageableEmployees.map((employee) => (
                   <option key={employee.id} value={employee.id}>
                     {employee.lastName}, {employee.firstName}
                   </option>
@@ -653,6 +721,10 @@ export default function ShiftForm({
           color: #475569;
         }
 
+        .state-box.compact {
+          padding: 12px 14px;
+        }
+
         .error-box {
           border: 1px solid #fecaca;
           background: #fff7f7;
@@ -754,6 +826,7 @@ function MiniFlag({ active, label }: { active: boolean; label: string }) {
     </>
   );
 }
+
 
 function formatType(type: ShiftMasterType) {
   switch (type) {

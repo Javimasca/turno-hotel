@@ -4,8 +4,25 @@ import type {
   CreateShiftInput,
   UpdateShiftInput,
 } from "@/lib/shifts/shift.types";
+import { canManageEmployee } from "@/lib/permissions/canManageEmployee";
+import { employeeRepository } from "@/lib/employees/employee.repository";
 
 const MAX_SHIFT_DURATION_HOURS = 16;
+
+type UserRole = "ADMIN" | "MANAGER" | "EMPLOYEE";
+
+type RequestContext = {
+  userId: string;
+  role: UserRole;
+  employeeId: string | null;
+  isActive: boolean;
+};
+
+type ServiceError = {
+  ok: false;
+  error: string;
+  status?: number;
+};
 
 type GetShiftsByRangeInput = {
   startAt: Date;
@@ -15,18 +32,164 @@ type GetShiftsByRangeInput = {
   workAreaId?: string;
 };
 
+function ensureActiveUser(ctx: RequestContext): ServiceError | null {
+  if (!ctx.isActive) {
+    return {
+      ok: false,
+      error: "Usuario inactivo.",
+      status: 403,
+    };
+  }
+
+  return null;
+}
+
+function ensureCanManageShifts(ctx: RequestContext): ServiceError | null {
+  if (ctx.role === "EMPLOYEE") {
+    return {
+      ok: false,
+      error: "No tienes permisos para gestionar turnos.",
+      status: 403,
+    };
+  }
+
+  return null;
+}
+
+async function getReadableEmployeeIds(ctx: RequestContext): Promise<string[]> {
+  if (!ctx.isActive) {
+    return [];
+  }
+
+  if (ctx.role === "ADMIN") {
+    return [];
+  }
+
+  if (!ctx.employeeId) {
+    return [];
+  }
+
+  if (ctx.role === "EMPLOYEE") {
+    return [ctx.employeeId];
+  }
+
+  const subordinates = await prisma.employee.findMany({
+    where: {
+      directManagerEmployeeId: ctx.employeeId,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  return [ctx.employeeId, ...subordinates.map((employee) => employee.id)];
+}
+
+async function ensureCanManageEmployee(params: {
+  ctx: RequestContext;
+  targetEmployeeId: string;
+}): Promise<ServiceError | null> {
+  const { ctx, targetEmployeeId } = params;
+
+  const isDirectManager =
+    ctx.employeeId && ctx.role === "MANAGER"
+      ? await employeeRepository.isDirectManagerOf(
+          ctx.employeeId,
+          targetEmployeeId
+        )
+      : false;
+
+  const result = canManageEmployee({
+    role: ctx.role,
+    currentEmployeeId: ctx.employeeId,
+    targetEmployeeId,
+    isDirectManager,
+  });
+
+  if (!result.allowed) {
+    return {
+      ok: false,
+      error: result.reason ?? "No tienes permisos para gestionar este empleado.",
+      status: 403,
+    };
+  }
+
+  return null;
+}
+
 export const shiftService = {
   async getById(id: string) {
     return shiftRepository.findById(id);
   },
 
-  async getByRange(input: GetShiftsByRangeInput) {
+  async getByRange(input: GetShiftsByRangeInput, ctx: RequestContext) {
+  validateDateRange(input.startAt, input.endAt);
+
+  const inactiveError = ensureActiveUser(ctx);
+  if (inactiveError) {
+    throw new Error(inactiveError.error);
+  }
+
+  if (ctx.role === "ADMIN") {
+    return shiftRepository.findByRange(input);
+  }
+
+  const readableEmployeeIds = await getReadableEmployeeIds(ctx);
+
+  if (readableEmployeeIds.length === 0) {
+    return [];
+  }
+
+  return shiftRepository.findByRange({
+    ...input,
+    employeeIds: readableEmployeeIds,
+  });
+},
+
+  async getAbsencesByRange(input: GetShiftsByRangeInput, ctx: RequestContext) {
     validateDateRange(input.startAt, input.endAt);
 
-    return shiftRepository.findByRange(input);
+    const inactiveError = ensureActiveUser(ctx);
+    if (inactiveError) {
+      throw new Error(inactiveError.error);
+    }
+
+    if (ctx.role === "ADMIN") {
+      return shiftRepository.findAbsencesByRange(input);
+    }
+
+    const readableEmployeeIds = await getReadableEmployeeIds(ctx);
+
+    if (readableEmployeeIds.length === 0) {
+      return [];
+    }
+
+    return shiftRepository.findAbsencesByRange({
+      ...input,
+      employeeIds: readableEmployeeIds,
+    });
   },
 
-  async create(input: CreateShiftInput) {
+  async create(input: CreateShiftInput, ctx: RequestContext) {
+    const inactiveError = ensureActiveUser(ctx);
+    if (inactiveError) {
+      throw new Error(inactiveError.error);
+    }
+
+    const shiftPermissionError = ensureCanManageShifts(ctx);
+    if (shiftPermissionError) {
+      throw new Error(shiftPermissionError.error);
+    }
+
+    const manageEmployeeError = await ensureCanManageEmployee({
+      ctx,
+      targetEmployeeId: input.employeeId,
+    });
+
+    if (manageEmployeeError) {
+      throw new Error("No tienes permisos para crear turnos para este empleado.");
+    }
+
     validateRequiredCreateFields(input);
 
     const resolvedData = await resolveShiftCreateData(input);
@@ -97,14 +260,42 @@ export const shiftService = {
     });
   },
 
-  async update(id: string, input: UpdateShiftInput) {
+  async update(id: string, input: UpdateShiftInput, ctx: RequestContext) {
+    const inactiveError = ensureActiveUser(ctx);
+    if (inactiveError) {
+      throw new Error(inactiveError.error);
+    }
+
+    const shiftPermissionError = ensureCanManageShifts(ctx);
+    if (shiftPermissionError) {
+      throw new Error(shiftPermissionError.error);
+    }
+
     const existingShift = await shiftRepository.findById(id);
 
     if (!existingShift) {
       throw new Error("El turno no existe.");
     }
 
+    const manageExistingEmployeeError = await ensureCanManageEmployee({
+      ctx,
+      targetEmployeeId: existingShift.employeeId,
+    });
+
+    if (manageExistingEmployeeError) {
+      throw new Error("No tienes permisos para editar este turno.");
+    }
+
     const resolvedData = await resolveShiftUpdateData(existingShift, input);
+
+    const manageTargetEmployeeError = await ensureCanManageEmployee({
+      ctx,
+      targetEmployeeId: resolvedData.employeeId,
+    });
+
+    if (manageTargetEmployeeError) {
+      throw new Error("No tienes permisos para mover este turno a ese empleado.");
+    }
 
     validateShiftTimes(resolvedData.startAt, resolvedData.endAt);
 
@@ -173,11 +364,30 @@ export const shiftService = {
     });
   },
 
-  async remove(id: string) {
+  async remove(id: string, ctx: RequestContext) {
+    const inactiveError = ensureActiveUser(ctx);
+    if (inactiveError) {
+      throw new Error(inactiveError.error);
+    }
+
+    const shiftPermissionError = ensureCanManageShifts(ctx);
+    if (shiftPermissionError) {
+      throw new Error(shiftPermissionError.error);
+    }
+
     const existingShift = await shiftRepository.findById(id);
 
     if (!existingShift) {
       throw new Error("El turno no existe.");
+    }
+
+    const manageEmployeeError = await ensureCanManageEmployee({
+      ctx,
+      targetEmployeeId: existingShift.employeeId,
+    });
+
+    if (manageEmployeeError) {
+      throw new Error("No tienes permisos para eliminar este turno.");
     }
 
     return shiftRepository.delete(id);

@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { shiftService } from "@/lib/shifts/shift.service";
-import { shiftRepository } from "@/lib/shifts/shift.repository";
+import { getRequestContext } from "@/lib/auth/getRequestContext";
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
+    const ctx = await getRequestContext();
 
     const startAtParam = searchParams.get("startAt");
     const endAtParam = searchParams.get("endAt");
@@ -23,20 +24,26 @@ export async function GET(request: NextRequest) {
     const endAt = new Date(endAtParam);
 
     const [shifts, absences] = await Promise.all([
-      shiftService.getByRange({
-        startAt,
-        endAt,
-        workplaceId,
-        departmentId,
-        workAreaId,
-      }),
-      shiftRepository.findAbsencesByRange({
-        startAt,
-        endAt,
-        workplaceId,
-        departmentId,
-        workAreaId,
-      }),
+      shiftService.getByRange(
+        {
+          startAt,
+          endAt,
+          workplaceId,
+          departmentId,
+          workAreaId,
+        },
+        ctx
+      ),
+      shiftService.getAbsencesByRange(
+        {
+          startAt,
+          endAt,
+          workplaceId,
+          departmentId,
+          workAreaId,
+        },
+        ctx
+      ),
     ]);
 
     return NextResponse.json({
@@ -51,20 +58,24 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+    const ctx = await getRequestContext();
 
-    const shift = await shiftService.create({
-      employeeId: body.employeeId,
-      workplaceId: body.workplaceId,
-      departmentId: body.departmentId,
-      workAreaId: body.workAreaId ?? null,
-      jobCategoryId: body.jobCategoryId ?? null,
-      shiftMasterId: body.shiftMasterId ?? null,
-      date: body.date ? new Date(body.date) : undefined,
-      startAt: body.startAt ? new Date(body.startAt) : undefined,
-      endAt: body.endAt ? new Date(body.endAt) : undefined,
-      status: body.status,
-      notes: body.notes ?? null,
-    });
+    const shift = await shiftService.create(
+      {
+        employeeId: body.employeeId,
+        workplaceId: body.workplaceId,
+        departmentId: body.departmentId,
+        workAreaId: body.workAreaId ?? null,
+        jobCategoryId: body.jobCategoryId ?? null,
+        shiftMasterId: body.shiftMasterId ?? null,
+        date: body.date ? new Date(body.date) : undefined,
+        startAt: body.startAt ? new Date(body.startAt) : undefined,
+        endAt: body.endAt ? new Date(body.endAt) : undefined,
+        status: body.status,
+        notes: body.notes ?? null,
+      },
+      ctx
+    );
 
     return NextResponse.json(shift, { status: 201 });
   } catch (error) {

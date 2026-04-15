@@ -35,7 +35,9 @@ function isAbsenceStatus(value: string): value is AbsenceStatus {
 }
 
 export async function GET() {
-  const result = await absenceService.list();
+  const ctx = await getRequestContext();
+
+  const result = await absenceService.list(ctx);
 
   if (!result.ok) {
     return NextResponse.json(

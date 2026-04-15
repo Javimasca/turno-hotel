@@ -1,13 +1,120 @@
 import Image from "next/image";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 import { prisma } from "@/lib/prisma";
+import { getSessionUser } from "@/lib/auth/auth-session";
 
 export const dynamic = "force-dynamic";
 
+function getUserRoleLabel(role: "ADMIN" | "MANAGER" | "EMPLOYEE") {
+  switch (role) {
+    case "ADMIN":
+      return "Admin";
+    case "MANAGER":
+      return "Manager";
+    case "EMPLOYEE":
+      return "Employee";
+    default:
+      return role;
+  }
+}
+
+function getSubordinatesLabel(count: number) {
+  if (count === 0) return "Sin subordinados";
+  if (count === 1) return "1 subordinado";
+  return `${count} subordinados`;
+}
+
 export default async function EmployeesPage() {
+  const currentUser = await getSessionUser();
+
+  if (!currentUser) {
+    redirect("/login");
+  }
+
+  if (!currentUser.isActive) {
+    return (
+      <main className="page-shell">
+        <section className="page-header">
+          <div>
+            <Link href="/" className="back-link">
+              ← Volver al inicio
+            </Link>
+            <p className="eyebrow">Maestros · Empleados</p>
+            <h1>Empleados</h1>
+            <p className="page-description">
+              Gestionamos la ficha base de cada trabajador y su contexto
+              organizativo dentro del hotel.
+            </p>
+          </div>
+        </section>
+
+        <section className="card">
+          <div className="empty-state">
+            <h3>Acceso no disponible</h3>
+            <p>Tu usuario está inactivo y no puede acceder a esta sección.</p>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  if (currentUser.role === "EMPLOYEE") {
+    return (
+      <main className="page-shell">
+        <section className="page-header">
+          <div>
+            <Link href="/" className="back-link">
+              ← Volver al inicio
+            </Link>
+            <p className="eyebrow">Maestros · Empleados</p>
+            <h1>Empleados</h1>
+            <p className="page-description">
+              Gestionamos la ficha base de cada trabajador y su contexto
+              organizativo dentro del hotel.
+            </p>
+          </div>
+        </section>
+
+        <section className="card">
+          <div className="empty-state">
+            <h3>Sin permisos suficientes</h3>
+            <p>
+              Tu perfil no puede acceder al listado maestro de empleados.
+            </p>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  // 🔒 FILTRO POR ROL (CLAVE)
+  const employeeWhere =
+    currentUser.role === "ADMIN"
+      ? undefined
+      : {
+          OR: [
+            { id: currentUser.employeeId ?? "__no_employee__" },
+            {
+              directManagerEmployeeId:
+                currentUser.employeeId ?? "__no_employee__",
+            },
+          ],
+        };
+
   const employees = await prisma.employee.findMany({
+    where: employeeWhere,
     include: {
+      user: {
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          isActive: true,
+        },
+      },
       directManager: {
         select: {
           id: true,
@@ -15,6 +122,15 @@ export default async function EmployeesPage() {
           firstName: true,
           lastName: true,
         },
+      },
+      subordinates: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          isActive: true,
+        },
+        orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
       },
       employeeWorkplaces: {
         include: {
@@ -96,6 +212,17 @@ export default async function EmployeesPage() {
         </div>
       </section>
 
+      {currentUser.role === "MANAGER" ? (
+        <section className="card" style={{ marginBottom: "1rem" }}>
+          <div className="empty-state" style={{ alignItems: "flex-start" }}>
+            <h3 style={{ marginBottom: "0.5rem" }}>Vista de manager</h3>
+            <p style={{ margin: 0 }}>
+              Estás viendo tu propia ficha y la de tus subordinados directos.
+            </p>
+          </div>
+        </section>
+      ) : null}
+
       <section className="card">
         {employees.length === 0 ? (
           <div className="empty-state">
@@ -118,12 +245,14 @@ export default async function EmployeesPage() {
                 <tr>
                   <th>Código</th>
                   <th>Empleado</th>
+                  <th>Usuario</th>
                   <th>Responsable</th>
+                  <th>Equipo</th>
                   <th>Centros</th>
                   <th>Departamentos</th>
                   <th>Contrato actual</th>
                   <th>Estado</th>
-                  <th aria-label="Acciones" />
+                  <th />
                 </tr>
               </thead>
               <tbody>
@@ -135,147 +264,97 @@ export default async function EmployeesPage() {
                       const startsOk = contract.startDate <= today;
                       const endsOk =
                         contract.endDate === null || contract.endDate >= today;
-
                       return startsOk && endsOk;
-                    },
+                    }
                   );
 
                   const managerName = employee.directManager
                     ? `${employee.directManager.firstName} ${employee.directManager.lastName}`
                     : "—";
 
-                  const workplaces =
-                    employee.employeeWorkplaces.length > 0
-                      ? employee.employeeWorkplaces.map(
-                          (item) => item.workplace.name,
-                        )
-                      : [];
+                  const workplaces = employee.employeeWorkplaces.map(
+                    (item) => item.workplace.name
+                  );
 
-                  const departments =
-                    employee.employeeDepartments.length > 0
-                      ? employee.employeeDepartments.map(
-                          (item) =>
-                            `${item.department.name} · ${item.department.workplace.name}`,
-                        )
-                      : [];
+                  const departments = employee.employeeDepartments.map(
+                    (item) =>
+                      `${item.department.name} · ${item.department.workplace.name}`
+                  );
 
                   const fullName = `${employee.firstName} ${employee.lastName}`;
-                  const initials = `${employee.firstName.trim().charAt(0)}${employee.lastName
-                    .trim()
-                    .charAt(0)}`
-                    .toUpperCase()
-                    .trim();
+                  const initials = `${employee.firstName[0]}${employee.lastName[0]}`.toUpperCase();
+
                   const isOperationallyActive =
                     employee.isActive && Boolean(currentContract);
+
+                  const subordinateCount = employee.subordinates.length;
+                  const activeSubordinateCount =
+                    employee.subordinates.filter((s) => s.isActive).length;
 
                   return (
                     <tr key={employee.id}>
                       <td>{employee.code}</td>
 
                       <td>
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "1rem",
-                          }}
-                        >
+                        <div style={{ display: "flex", gap: "1rem" }}>
                           {employee.photoUrl ? (
                             <Image
                               src={employee.photoUrl}
-                              alt={`Foto de ${fullName}`}
+                              alt={fullName}
                               width={72}
                               height={72}
-                              quality={90}
-                              style={{
-                                borderRadius: "9999px",
-                                objectFit: "cover",
-                                border: "1px solid #d1d5db",
-                                flexShrink: 0,
-                              }}
+                              style={{ borderRadius: "9999px" }}
                             />
                           ) : (
-                            <div
-                              style={{
-                                width: "72px",
-                                height: "72px",
-                                borderRadius: "9999px",
-                                border: "1px solid #d1d5db",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                fontSize: "1.125rem",
-                                fontWeight: 700,
-                                backgroundColor: "#f8fafc",
-                                color: "#334155",
-                                flexShrink: 0,
-                              }}
-                            >
-                              {initials || "EM"}
-                            </div>
+                            <div>{initials}</div>
                           )}
-
                           <div>
                             <strong>{fullName}</strong>
-                            {employee.email ? <div>{employee.email}</div> : null}
                           </div>
                         </div>
+                      </td>
+
+                      <td>
+                        {employee.user ? (
+                          <>
+                            <strong>
+                              {getUserRoleLabel(employee.user.role)}
+                            </strong>
+                            <div>{employee.user.email}</div>
+                          </>
+                        ) : (
+                          "Sin usuario"
+                        )}
                       </td>
 
                       <td>{managerName}</td>
 
                       <td>
-                        {workplaces.length > 0 ? (
-                          <div className="stacked-list">
-                            {workplaces.map((name) => (
-                              <span key={name}>{name}</span>
-                            ))}
-                          </div>
-                        ) : (
-                          "—"
+                        <strong>
+                          {getSubordinatesLabel(subordinateCount)}
+                        </strong>
+                        {subordinateCount > 0 && (
+                          <div>{activeSubordinateCount} activos</div>
                         )}
                       </td>
 
+                      <td>{workplaces.join(", ") || "—"}</td>
+                      <td>{departments.join(", ") || "—"}</td>
+
                       <td>
-                        {departments.length > 0 ? (
-                          <div className="stacked-list">
-                            {departments.map((name) => (
-                              <span key={name}>{name}</span>
-                            ))}
-                          </div>
-                        ) : (
-                          "—"
-                        )}
+                        {currentContract
+                          ? currentContract.jobCategory.shortName ||
+                            currentContract.jobCategory.name
+                          : "Sin contrato"}
                       </td>
 
                       <td>
-                        {currentContract ? (
-                          <div>
-                            <strong>
-                              {currentContract.jobCategory.shortName ||
-                                currentContract.jobCategory.name}
-                            </strong>
-                            <div>{currentContract.contractType}</div>
-                          </div>
-                        ) : (
-                          "Sin contrato vigente"
-                        )}
+                        {isOperationallyActive ? "Activo" : "Inactivo"}
                       </td>
 
                       <td>
-                        <span
-                          className={`status-chip ${
-                            isOperationallyActive ? "active" : "inactive"
-                          }`}
-                        >
-                          {isOperationallyActive ? "Activo" : "Inactivo"}
-                        </span>
-                      </td>
-
-                      <td className="actions-cell">
                         <Link
                           href={`/maestros/empleados/${employee.id}/editar`}
-                          className="button button-secondary"
                         >
                           Editar
                         </Link>

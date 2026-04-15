@@ -1,31 +1,15 @@
 import Link from "next/link";
-import { headers } from "next/headers";
 
 import OrganigramaTree from "@/components/organigrama/OrganigramaTree";
-import { OrgNode as OrgNodeType } from "@/lib/employees/employee.org.service";
+import {
+  employeeOrgService,
+  OrgNode as OrgNodeType,
+} from "@/lib/employees/employee.org.service";
 
 export const dynamic = "force-dynamic";
 
-async function getBaseUrl() {
-  const headersList = await headers();
-  const host = headersList.get("host");
-  const protocol = process.env.NODE_ENV === "development" ? "http" : "https";
-
-  return `${protocol}://${host}`;
-}
-
 async function getData(): Promise<OrgNodeType[]> {
-  const baseUrl = await getBaseUrl();
-
-  const response = await fetch(`${baseUrl}/api/organigrama`, {
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error("No se pudo cargar el organigrama.");
-  }
-
-  return response.json();
+  return employeeOrgService.getTree();
 }
 
 export default async function OrganigramaPage() {

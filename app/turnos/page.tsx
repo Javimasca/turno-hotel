@@ -4,8 +4,13 @@ import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import ShiftForm from "@/components/shifts/shift-form";
 import AbsenceForm from "@/components/absences/absence-form";
-import { DevAuthSwitcher } from "@/components/dev/DevAuthSwitcher";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import {
+  canCreateAbsenceForEmployeeFrontend,
+  canInteractWithEmployeeRowFrontend,
+  canManageShiftsForEmployeeFrontend,
+  type FrontendPermissionUser,
+} from "@/lib/permissions/canManageEmployeeFrontend";
 
 type Employee = {
   id: string;
@@ -13,6 +18,7 @@ type Employee = {
   lastName: string;
   photoUrl: string | null;
   isActive: boolean;
+  directManagerEmployeeId: string | null;
   employeeContracts?: {
     id: string;
     startDate: string;
@@ -127,20 +133,22 @@ type CellSelection = {
   endDate: Date;
 };
 
+type CurrentUser = FrontendPermissionUser;
+
 const DAY_NAMES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
 export default function TurnosPage() {
   const { user, isLoading: isUserLoading, error: userError } = useCurrentUser();
 
   const canManageShifts =
-    user?.role === "ADMIN" || user?.role === "MANAGER";
+    user?.isActive === true &&
+    (user.role === "ADMIN" || user.role === "MANAGER");
 
   const canCreateAbsences =
-    user?.role === "ADMIN" ||
-    user?.role === "MANAGER" ||
-    user?.role === "EMPLOYEE";
-
-  const canOpenCellActions = canManageShifts || canCreateAbsences;
+    user?.isActive === true &&
+    (user.role === "ADMIN" ||
+      user.role === "MANAGER" ||
+      user.role === "EMPLOYEE");
 
   const [currentWeekStart, setCurrentWeekStart] = useState(() =>
     getStartOfWeek(new Date())
@@ -177,6 +185,20 @@ export default function TurnosPage() {
     () => Array.from({ length: 7 }, (_, index) => addDays(currentWeekStart, index)),
     [currentWeekStart]
   );
+
+  const selectedCellEmployee = useMemo(() => {
+    if (!selectedCell) return null;
+
+    return employees.find((employee) => employee.id === selectedCell.employeeId) ?? null;
+  }, [selectedCell, employees]);
+
+  const selectedCellCanManageShifts =
+  selectedCellEmployee != null &&
+  canManageShiftsForEmployeeFrontend(user, selectedCellEmployee);
+
+const selectedCellCanCreateAbsences =
+  selectedCellEmployee != null &&
+  canCreateAbsenceForEmployeeFrontend(user, selectedCellEmployee);
 
   useEffect(() => {
     void loadWorkplaces();
@@ -337,7 +359,14 @@ export default function TurnosPage() {
       }
 
       const employeesData = (await employeesResponse.json()) as Employee[];
-      const shiftsData = (await shiftsResponse.json()) as ShiftsApiResponse;
+      const shiftsData = (await shiftsResponse.json()) as ShiftsApiResponse | {
+  shifts?: Shift[];
+  absences?: Absence[];
+  error?: string;
+};
+
+setShifts(Array.isArray(shiftsData?.shifts) ? shiftsData.shifts : []);
+setAbsences(Array.isArray(shiftsData?.absences) ? shiftsData.absences : []);
 
       setEmployees(
         employeesData
@@ -387,8 +416,8 @@ export default function TurnosPage() {
           })
       );
 
-      setShifts(shiftsData.shifts);
-      setAbsences(shiftsData.absences);
+      setShifts(Array.isArray(shiftsData?.shifts) ? shiftsData.shifts : []);
+setAbsences(Array.isArray(shiftsData?.absences) ? shiftsData.absences : []);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Ha ocurrido un error inesperado."
@@ -402,19 +431,23 @@ export default function TurnosPage() {
   const departmentOptions = useMemo(() => departments, [departments]);
   const workAreaOptions = useMemo(() => workAreas, [workAreas]);
 
-  const filteredShifts = useMemo(() => {
+   const filteredShifts = useMemo(() => {
+    const safeShifts = Array.isArray(shifts) ? shifts : [];
+
     if (selectedStatus === "all") {
-      return shifts;
+      return safeShifts;
     }
 
-    return shifts.filter((shift) => shift.status === selectedStatus);
+    return safeShifts.filter((shift) => shift.status === selectedStatus);
   }, [shifts, selectedStatus]);
 
   const filteredEmployees = useMemo(() => {
     const normalizedSearch = employeeSearch.trim().toLocaleLowerCase("es");
     const employeeIdsWithVisibleShifts = new Set(
-      filteredShifts.map((shift) => shift.employeeId)
-    );
+  (Array.isArray(filteredShifts) ? filteredShifts : []).map(
+    (shift) => shift.employeeId
+  )
+);
     const employeeIdsWithVisibleAbsences = new Set(
       absences
         .filter((absence) => absence.status === "APPROVED")
@@ -474,6 +507,13 @@ export default function TurnosPage() {
   function handleOpenShiftForm(employeeId?: string, date?: Date) {
     if (!canManageShifts) return;
 
+    if (employeeId) {
+      const employee = employees.find((item) => item.id === employeeId);
+      if (!employee || !canManageShiftsForEmployeeFrontend(user, employee)) {
+        return;
+      }
+    }
+
     setPrefillEmployeeId(employeeId ?? "");
     setPrefillDate(date ? toInputDate(date) : "");
     setShowForm(true);
@@ -489,6 +529,13 @@ export default function TurnosPage() {
   function handleOpenAbsenceForm(employeeId?: string, date?: Date) {
     if (!canCreateAbsences) return;
 
+    if (employeeId) {
+      const employee = employees.find((item) => item.id === employeeId);
+      if (!employee || !canCreateAbsenceForEmployeeFrontend(user, employee)) {
+        return;
+      }
+    }
+
     setPrefillEmployeeId(employeeId ?? "");
     setPrefillDate(date ? toInputDate(date) : "");
     setShowAbsenceForm(true);
@@ -501,13 +548,28 @@ export default function TurnosPage() {
     setPrefillEndDate("");
   }
 
-  function handleCellClick(employeeId: string, date: Date) {
-    if (!canOpenCellActions) return;
+  function handleCellClick(employee: Employee, date: Date) {
+    if (!canInteractWithEmployeeRowFrontend(user, employee)) return;
 
     setSelectedCell({
-      employeeId,
+      employeeId: employee.id,
       startDate: date,
       endDate: date,
+    });
+
+    setShowCellActionModal(true);
+  }
+
+    function handleRangeSelect(employee: Employee, start: Date, end: Date) {
+    if (!canInteractWithEmployeeRowFrontend(user, employee)) return;
+
+    const normalizedStart = start <= end ? start : end;
+    const normalizedEnd = start <= end ? end : start;
+
+    setSelectedCell({
+      employeeId: employee.id,
+      startDate: normalizedStart,
+      endDate: normalizedEnd,
     });
 
     setShowCellActionModal(true);
@@ -519,7 +581,7 @@ export default function TurnosPage() {
   }
 
   function handleCreateShiftFromCell() {
-    if (!selectedCell || !canManageShifts) return;
+    if (!selectedCell || !selectedCellEmployee || !selectedCellCanManageShifts) return;
 
     setShowCellActionModal(false);
     handleOpenShiftForm(selectedCell.employeeId, selectedCell.startDate);
@@ -527,7 +589,13 @@ export default function TurnosPage() {
   }
 
   function handleCreateAbsenceFromCell() {
-    if (!selectedCell || !canCreateAbsences) return;
+    if (
+      !selectedCell ||
+      !selectedCellEmployee ||
+      !selectedCellCanCreateAbsences
+    ) {
+      return;
+    }
 
     setShowCellActionModal(false);
     setPrefillEmployeeId(selectedCell.employeeId);
@@ -544,8 +612,7 @@ export default function TurnosPage() {
   return (
     <>
       <div className="page-shell">
-        {process.env.NODE_ENV === "development" && <DevAuthSwitcher />}
-
+        
         {userError ? (
           <div className="state-card error">
             <p>{userError}</p>
@@ -555,7 +622,17 @@ export default function TurnosPage() {
         {!isUserLoading && user?.role === "EMPLOYEE" ? (
           <div className="state-card info">
             <p>
-              Estás viendo el cuadrante como empleado. La creación de turnos no está disponible.
+              Estás viendo el cuadrante como empleado. Solo puedes registrar ausencias
+              sobre tu propia fila.
+            </p>
+          </div>
+        ) : null}
+
+        {!isUserLoading && user?.role === "MANAGER" ? (
+          <div className="state-card info">
+            <p>
+              Estás viendo el cuadrante como manager. Solo puedes gestionar tu propia
+              fila y la de tus subordinados directos.
             </p>
           </div>
         ) : null}
@@ -747,31 +824,22 @@ export default function TurnosPage() {
                 </div>
               ))}
 
-              {filteredEmployees.map((employee) => (
-                <WeeklyEmployeeRow
-                  key={employee.id}
-                  employee={employee}
-                  weekDays={weekDays}
-                  shifts={filteredShifts.filter((shift) => shift.employeeId === employee.id)}
-                  absences={absences.filter((absence) => absence.employeeId === employee.id)}
-                  canInteract={canOpenCellActions}
-                  onDayClick={(day) => handleCellClick(employee.id, day)}
-                  onRangeSelect={(start, end) => {
-                    if (!canOpenCellActions) return;
+              {filteredEmployees.map((employee) => {
+                const canInteract = canInteractWithEmployeeRowFrontend(user, employee);
 
-                    const normalizedStart = start <= end ? start : end;
-                    const normalizedEnd = start <= end ? end : start;
-
-                    setSelectedCell({
-                      employeeId: employee.id,
-                      startDate: normalizedStart,
-                      endDate: normalizedEnd,
-                    });
-
-                    setShowCellActionModal(true);
-                  }}
-                />
-              ))}
+                return (
+                  <WeeklyEmployeeRow
+                    key={employee.id}
+                    employee={employee}
+                    weekDays={weekDays}
+                    shifts={filteredShifts.filter((shift) => shift.employeeId === employee.id)}
+                    absences={absences.filter((absence) => absence.employeeId === employee.id)}
+                    canInteract={canInteract}
+                    onDayClick={(day) => handleCellClick(employee, day)}
+                    onRangeSelect={(start, end) => handleRangeSelect(employee, start, end)}
+                  />
+                );
+              })}
             </div>
           </div>
         )}
@@ -816,7 +884,7 @@ export default function TurnosPage() {
             </div>
 
             <div className="cell-action-body">
-              {canManageShifts ? (
+              {selectedCellCanManageShifts ? (
                 <button
                   type="button"
                   className="cell-action-option"
@@ -829,7 +897,7 @@ export default function TurnosPage() {
                 </button>
               ) : null}
 
-              {canCreateAbsences ? (
+              {selectedCellCanCreateAbsences ? (
                 <button
                   type="button"
                   className="cell-action-option"
@@ -840,6 +908,12 @@ export default function TurnosPage() {
                     Abrir el formulario de ausencia con empleado y fecha precargados.
                   </span>
                 </button>
+              ) : null}
+
+              {!selectedCellCanManageShifts && !selectedCellCanCreateAbsences ? (
+                <div className="cell-action-empty">
+                  No tienes permisos para crear registros sobre esta fila.
+                </div>
               ) : null}
             </div>
 
@@ -1222,6 +1296,15 @@ export default function TurnosPage() {
           font-size: 12px;
           color: #64748b;
           line-height: 1.4;
+        }
+
+        .cell-action-empty {
+          border: 1px dashed #cbd5e1;
+          border-radius: 14px;
+          padding: 14px;
+          font-size: 12px;
+          color: #64748b;
+          background: #f8fafc;
         }
 
         .cell-action-footer {
@@ -1748,6 +1831,7 @@ function WeeklyEmployeeRow({
     </>
   );
 }
+
 
 function getStartOfWeek(date: Date) {
   const result = new Date(date);

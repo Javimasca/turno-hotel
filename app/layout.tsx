@@ -1,17 +1,17 @@
-import type { Metadata } from 'next'
-import Image from 'next/image'
-import Link from 'next/link'
-import './globals.css'
+import type { Metadata } from "next";
+import Image from "next/image";
+import Link from "next/link";
+import "./globals.css";
 
 export const metadata: Metadata = {
-  title: 'Horion',
-  description: 'Gestión operativa hotelera',
-}
+  title: "Horion",
+  description: "Gestión operativa hotelera",
+};
 
 export default function RootLayout({
   children,
 }: Readonly<{
-  children: React.ReactNode
+  children: React.ReactNode;
 }>) {
   return (
     <html lang="es">
@@ -39,6 +39,12 @@ export default function RootLayout({
               <Link href="/maestros" className="app-topnav-link">
                 Maestros
               </Link>
+              <Link href="/maestros/empleados" className="app-topnav-link">
+                Empleados
+              </Link>
+              <Link href="/maestros/usuarios" className="app-topnav-link">
+                Usuarios
+              </Link>
               <Link href="/turnos" className="app-topnav-link">
                 Turnos
               </Link>
@@ -49,5 +55,5 @@ export default function RootLayout({
         <div className="app-main">{children}</div>
       </body>
     </html>
-  )
+  );
 }

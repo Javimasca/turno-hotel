@@ -7,6 +7,7 @@ type FindByRangeInput = {
   workplaceId?: string;
   departmentId?: string;
   workAreaId?: string;
+  employeeIds?: string[];
 };
 
 export const shiftRepository = {
@@ -29,6 +30,9 @@ export const shiftRepository = {
   },
 
   async findByRange(input: FindByRangeInput) {
+    const employeeIds =
+      input.employeeIds?.filter((id) => id.trim().length > 0) ?? [];
+
     return prisma.shift.findMany({
       where: {
         startAt: {
@@ -40,6 +44,13 @@ export const shiftRepository = {
         ...(input.workplaceId ? { workplaceId: input.workplaceId } : {}),
         ...(input.departmentId ? { departmentId: input.departmentId } : {}),
         ...(input.workAreaId ? { workAreaId: input.workAreaId } : {}),
+        ...(employeeIds.length > 0
+          ? {
+              employeeId: {
+                in: employeeIds,
+              },
+            }
+          : {}),
       },
       include: {
         employee: true,
@@ -60,6 +71,9 @@ export const shiftRepository = {
   },
 
   async findAbsencesByRange(input: FindByRangeInput) {
+    const employeeIds =
+      input.employeeIds?.filter((id) => id.trim().length > 0) ?? [];
+
     return prisma.absence.findMany({
       where: {
         startDate: {
@@ -68,6 +82,13 @@ export const shiftRepository = {
         endDate: {
           gte: input.startAt,
         },
+        ...(employeeIds.length > 0
+          ? {
+              employeeId: {
+                in: employeeIds,
+              },
+            }
+          : {}),
         employee: {
           ...(input.workplaceId
             ? {

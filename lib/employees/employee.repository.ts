@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 type EmployeeListFilters = {
   isActive?: boolean;
   search?: string;
+  employeeIds?: string[];
+  directManagerEmployeeId?: string;
 };
 
 type CreateEmployeeInput = {
@@ -34,6 +36,24 @@ type UpdateEmployeeInput = {
 export const employeeRepository = {
   findMany(filters: EmployeeListFilters = {}) {
     const search = filters.search?.trim();
+    const employeeIds =
+      filters.employeeIds?.filter((id) => id.trim().length > 0) ?? [];
+
+    const scopeOr =
+      employeeIds.length > 0 || filters.directManagerEmployeeId
+        ? [
+            ...(employeeIds.length > 0
+              ? [{ id: { in: employeeIds } as const }]
+              : []),
+            ...(filters.directManagerEmployeeId
+              ? [
+                  {
+                    directManagerEmployeeId: filters.directManagerEmployeeId,
+                  } as const,
+                ]
+              : []),
+          ]
+        : [];
 
     return prisma.employee.findMany({
       where: {
@@ -50,8 +70,18 @@ export const employeeRepository = {
               ],
             }
           : {}),
+        ...(scopeOr.length > 0 ? { AND: [{ OR: scopeOr }] } : {}),
       },
       include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            role: true,
+            isActive: true,
+          },
+        },
         directManager: {
           select: {
             id: true,
@@ -124,6 +154,15 @@ export const employeeRepository = {
     return prisma.employee.findUnique({
       where: { id },
       include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            role: true,
+            isActive: true,
+          },
+        },
         directManager: {
           select: {
             id: true,
@@ -291,6 +330,15 @@ export const employeeRepository = {
           : {}),
       },
       include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            role: true,
+            isActive: true,
+          },
+        },
         directManager: {
           select: {
             id: true,
@@ -398,6 +446,15 @@ export const employeeRepository = {
           : {}),
       },
       include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            role: true,
+            isActive: true,
+          },
+        },
         directManager: {
           select: {
             id: true,

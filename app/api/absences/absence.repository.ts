@@ -16,14 +16,29 @@ export type CreateAbsenceInput = {
 
 export type UpdateAbsenceInput = Partial<CreateAbsenceInput>;
 
+type FindAllFilters = {
+  employeeIds?: string[];
+};
+
 const absenceInclude = {
   employee: true,
   absenceType: true,
 } as const;
 
 export const absenceRepository = {
-  async findAll() {
+  async findAll(filters: FindAllFilters = {}) {
+    const employeeIds =
+      filters.employeeIds?.filter((id) => id.trim().length > 0) ?? [];
+
     return prisma.absence.findMany({
+      where:
+        employeeIds.length > 0
+          ? {
+              employeeId: {
+                in: employeeIds,
+              },
+            }
+          : undefined,
       include: absenceInclude,
       orderBy: [{ startDate: "desc" }],
     });
@@ -55,6 +70,18 @@ export const absenceRepository = {
     return prisma.absence.delete({
       where: { id },
       include: absenceInclude,
+    });
+  },
+
+  async findEmployeesByDirectManagerId(managerEmployeeId: string) {
+    return prisma.employee.findMany({
+      where: {
+        directManagerEmployeeId: managerEmployeeId,
+      },
+      select: {
+        id: true,
+      },
+      orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
     });
   },
 
@@ -130,9 +157,25 @@ export const absenceRepository = {
 };
 
 function startOfDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    0,
+    0,
+    0,
+    0
+  );
 }
 
 function endOfDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    23,
+    59,
+    59,
+    999
+  );
 }
