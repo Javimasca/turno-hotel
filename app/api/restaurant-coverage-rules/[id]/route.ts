@@ -1,29 +1,31 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { restaurantCoverageRuleService } from "@/lib/planning/restaurant-coverage-rule.service";
 import { getRequestContext } from "@/lib/auth/getRequestContext";
 
-type Params = {
-  params: {
+type RouteContext = {
+  params: Promise<{
     id: string;
-  };
+  }>;
 };
 
-export async function GET(_: Request, { params }: Params) {
+export async function GET(_: NextRequest, context: RouteContext) {
   const ctx = await getRequestContext();
 
-  if (!ctx.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!ctx.userId || ctx.userId === "system-anonymous") {
+  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+}
 
-  if (!ctx.user.isActive) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+if (!ctx.isActive) {
+  return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+}
 
-  if (ctx.user.role !== "ADMIN") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+if (ctx.role !== "ADMIN") {
+  return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+}
 
-  const rule = await restaurantCoverageRuleService.getById(params.id);
+
+  const { id } = await context.params;
+  const rule = await restaurantCoverageRuleService.getById(id);
 
   if (!rule) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -32,10 +34,12 @@ export async function GET(_: Request, { params }: Params) {
   return NextResponse.json(rule);
 }
 
-export async function PATCH(req: Request, { params }: Params) {
+export async function PATCH(req: NextRequest, context: RouteContext) {
   const ctx = await getRequestContext();
 
-  if (!ctx.user) {
+  if (!ctx.userId || ctx.userId === "system-anonymous") {
+  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+}
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -47,10 +51,11 @@ export async function PATCH(req: Request, { params }: Params) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  const { id } = await context.params;
   const body = await req.json();
 
   try {
-    const updated = await restaurantCoverageRuleService.update(params.id, {
+    const updated = await restaurantCoverageRuleService.update(id, {
       workplaceId: body.workplaceId,
       serviceType: body.serviceType,
       ratioCoversPerEmployee: body.ratioCoversPerEmployee,
@@ -68,7 +73,7 @@ export async function PATCH(req: Request, { params }: Params) {
   }
 }
 
-export async function DELETE(_: Request, { params }: Params) {
+export async function DELETE(_: NextRequest, context: RouteContext) {
   const ctx = await getRequestContext();
 
   if (!ctx.user) {
@@ -83,8 +88,10 @@ export async function DELETE(_: Request, { params }: Params) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  const { id } = await context.params;
+
   try {
-    await restaurantCoverageRuleService.delete(params.id);
+    await restaurantCoverageRuleService.delete(id);
     return NextResponse.json({ success: true });
   } catch (error: any) {
     return NextResponse.json(
