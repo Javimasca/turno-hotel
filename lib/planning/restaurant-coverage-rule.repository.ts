@@ -1,9 +1,9 @@
-import type { ServiceType } from "@prisma/client";
+import type { RestaurantServiceType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 type FindManyInput = {
   workplaceId?: string;
-  serviceType?: ServiceType;
+  serviceType?: RestaurantServiceType;
   isActive?: boolean;
 };
 
@@ -35,7 +35,7 @@ export const restaurantCoverageRuleRepository = {
 
   async findActiveByDate(
     workplaceId: string,
-    serviceType: ServiceType,
+    serviceType: RestaurantServiceType,
     date: Date
   ) {
     return prisma.restaurantCoverageRule.findFirst({
@@ -61,7 +61,7 @@ export const restaurantCoverageRuleRepository = {
 
   async findOverlappingRule(input: {
     workplaceId: string;
-    serviceType: ServiceType;
+    serviceType: RestaurantServiceType;
     validFrom: Date;
     validTo: Date;
     excludeId?: string;
@@ -84,7 +84,7 @@ export const restaurantCoverageRuleRepository = {
 
   async create(data: {
     workplaceId: string;
-    serviceType: ServiceType;
+    serviceType: RestaurantServiceType;
     ratioCoversPerEmployee: number;
     validFrom: Date;
     validTo: Date;
@@ -109,7 +109,7 @@ export const restaurantCoverageRuleRepository = {
     id: string,
     data: {
       workplaceId?: string;
-      serviceType?: ServiceType;
+      serviceType?: RestaurantServiceType;
       ratioCoversPerEmployee?: number;
       validFrom?: Date;
       validTo?: Date;

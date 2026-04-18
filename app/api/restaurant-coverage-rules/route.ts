@@ -5,15 +5,15 @@ import { getRequestContext } from "@/lib/auth/getRequestContext";
 export async function GET() {
   const ctx = await getRequestContext();
 
-  if (!ctx.user) {
+  if (!ctx.userId || ctx.userId === "system-anonymous") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!ctx.user.isActive) {
+  if (!ctx.isActive) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  if (ctx.user.role !== "ADMIN") {
+  if (ctx.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -25,15 +25,15 @@ export async function GET() {
 export async function POST(req: Request) {
   const ctx = await getRequestContext();
 
-  if (!ctx.user) {
+  if (!ctx.userId || ctx.userId === "system-anonymous") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!ctx.user.isActive) {
+  if (!ctx.isActive) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  if (ctx.user.role !== "ADMIN") {
+  if (ctx.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

@@ -1,4 +1,4 @@
-import type { ServiceType } from "@prisma/client";
+import type { RestaurantServiceType } from "@prisma/client";
 import { restaurantDemandService } from "./restaurant-demand.service";
 
 type GenerateRestaurantShiftProposalInput = {
@@ -11,7 +11,7 @@ type GenerateRestaurantShiftProposalInput = {
 };
 
 type ShiftProposal = {
-  serviceType: ServiceType;
+  serviceType: RestaurantServiceType;
   startAt: Date;
   endAt: Date;
   employeesNeeded: number;
@@ -38,7 +38,10 @@ export const restaurantShiftGeneratorService = {
   },
 };
 
-function getServiceStartAt(date: Date, serviceType: ServiceType): Date {
+function getServiceStartAt(
+  date: Date,
+  serviceType: RestaurantServiceType
+): Date {
   const result = new Date(date);
 
   if (serviceType === "BREAKFAST") {
@@ -55,7 +58,10 @@ function getServiceStartAt(date: Date, serviceType: ServiceType): Date {
   return result;
 }
 
-function getServiceEndAt(date: Date, serviceType: ServiceType): Date {
+function getServiceEndAt(
+  date: Date,
+  serviceType: RestaurantServiceType
+): Date {
   const result = new Date(date);
 
   if (serviceType === "BREAKFAST") {

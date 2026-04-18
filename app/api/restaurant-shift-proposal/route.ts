@@ -5,15 +5,15 @@ import { restaurantShiftGeneratorService } from "@/lib/planning/restaurant-shift
 export async function POST(req: Request) {
   const ctx = await getRequestContext();
 
-  if (!ctx.user) {
+  if (!ctx.userId || ctx.userId === "system-anonymous") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!ctx.user.isActive) {
+  if (!ctx.isActive) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  if (ctx.user.role !== "ADMIN" && ctx.user.role !== "MANAGER") {
+  if (ctx.role !== "ADMIN" && ctx.role !== "MANAGER") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

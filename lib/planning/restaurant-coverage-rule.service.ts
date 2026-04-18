@@ -1,9 +1,9 @@
-import type { ServiceType } from "@prisma/client";
+import type { RestaurantServiceType } from "@prisma/client";
 import { restaurantCoverageRuleRepository } from "./restaurant-coverage-rule.repository";
 
 type CreateRestaurantCoverageRuleInput = {
   workplaceId: string;
-  serviceType: ServiceType;
+  serviceType: RestaurantServiceType;
   ratioCoversPerEmployee: number;
   validFrom: Date;
   validTo: Date;
@@ -12,7 +12,7 @@ type CreateRestaurantCoverageRuleInput = {
 
 type UpdateRestaurantCoverageRuleInput = {
   workplaceId?: string;
-  serviceType?: ServiceType;
+  serviceType?: RestaurantServiceType;
   ratioCoversPerEmployee?: number;
   validFrom?: Date;
   validTo?: Date;
@@ -26,7 +26,7 @@ export const restaurantCoverageRuleService = {
 
   async list(input?: {
     workplaceId?: string;
-    serviceType?: ServiceType;
+    serviceType?: RestaurantServiceType;
     isActive?: boolean;
   }) {
     return restaurantCoverageRuleRepository.findMany(input);
@@ -34,7 +34,7 @@ export const restaurantCoverageRuleService = {
 
   async getActiveByDate(
     workplaceId: string,
-    serviceType: ServiceType,
+    serviceType: RestaurantServiceType,
     date: Date
   ) {
     return restaurantCoverageRuleRepository.findActiveByDate(

@@ -12,17 +12,16 @@ export async function GET(_: NextRequest, context: RouteContext) {
   const ctx = await getRequestContext();
 
   if (!ctx.userId || ctx.userId === "system-anonymous") {
-  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-}
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-if (!ctx.isActive) {
-  return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-}
+  if (!ctx.isActive) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
-if (ctx.role !== "ADMIN") {
-  return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-}
-
+  if (ctx.role !== "ADMIN") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const { id } = await context.params;
   const rule = await restaurantCoverageRuleService.getById(id);
@@ -38,16 +37,14 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
   const ctx = await getRequestContext();
 
   if (!ctx.userId || ctx.userId === "system-anonymous") {
-  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-}
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!ctx.user.isActive) {
+  if (!ctx.isActive) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  if (ctx.user.role !== "ADMIN") {
+  if (ctx.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -76,15 +73,15 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
 export async function DELETE(_: NextRequest, context: RouteContext) {
   const ctx = await getRequestContext();
 
-  if (!ctx.user) {
+  if (!ctx.userId || ctx.userId === "system-anonymous") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!ctx.user.isActive) {
+  if (!ctx.isActive) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  if (ctx.user.role !== "ADMIN") {
+  if (ctx.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

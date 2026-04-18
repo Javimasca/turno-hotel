@@ -1,4 +1,4 @@
-import type { ServiceType } from "@prisma/client";
+import type { RestaurantServiceType } from "@prisma/client";
 import { restaurantCoverageRuleService } from "./restaurant-coverage-rule.service";
 
 type CalculateRestaurantDemandInput = {
@@ -10,7 +10,7 @@ type CalculateRestaurantDemandInput = {
 };
 
 type DemandLine = {
-  serviceType: ServiceType;
+  serviceType: RestaurantServiceType;
   covers: number;
   ratioCoversPerEmployee: number;
   employeesNeeded: number;
@@ -20,7 +20,7 @@ export const restaurantDemandService = {
   async calculateDailyDemand(
     input: CalculateRestaurantDemandInput
   ): Promise<DemandLine[]> {
-    const services: Array<{ serviceType: ServiceType; covers: number }> = [
+    const services: Array<{ serviceType: RestaurantServiceType; covers: number }> = [
       { serviceType: "BREAKFAST", covers: input.breakfastCovers },
       { serviceType: "LUNCH", covers: input.lunchCovers },
       { serviceType: "DINNER", covers: input.dinnerCovers },
