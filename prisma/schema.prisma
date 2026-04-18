@@ -63,6 +63,11 @@ enum UserRole {
   EMPLOYEE
 }
 
+enum RestaurantServiceType {
+  BREAKFAST
+  LUNCH
+  DINNER
+}
 
 model Workplace {
   id          String   @id @default(cuid())
@@ -73,10 +78,11 @@ model Workplace {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  departments        Department[]
-  employeeWorkplaces EmployeeWorkplace[]
-  shifts             Shift[]
-  shiftMasters       ShiftMaster[]
+  departments             Department[]
+  employeeWorkplaces      EmployeeWorkplace[]
+  shifts                  Shift[]
+  shiftMasters            ShiftMaster[]
+  restaurantCoverageRules RestaurantCoverageRule[]
 
   @@index([name])
   @@map("workplaces")
@@ -460,4 +466,21 @@ model Session {
 
   @@index([userId])
   @@index([expiresAt])
+}
+
+model RestaurantCoverageRule {
+  id                     String                @id @default(cuid())
+  workplaceId            String
+  serviceType            RestaurantServiceType
+  ratioCoversPerEmployee Int
+  validFrom              DateTime
+  validTo                DateTime
+  isActive               Boolean               @default(true)
+
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+
+  workplace              Workplace             @relation(fields: [workplaceId], references: [id], onDelete: Cascade)
+
+  @@index([workplaceId, serviceType, validFrom, validTo])
 }
