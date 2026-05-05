@@ -1,707 +1,332 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
-import ShiftForm from "@/components/shifts/shift-form";
-import AbsenceForm from "@/components/absences/absence-form";
-import { useCurrentUser } from "@/hooks/useCurrentUser";
-import {
-  canManageShiftsForEmployeeFrontend,
-  canCreateAbsenceForEmployeeFrontend,
-  canInteractWithEmployeeRowFrontend,
-} from "@/lib/permissions/canManageEmployeeFrontend";
 
-type Employee = {
-  id: string;
-  firstName: string;
-  lastName: string;
-  photoUrl: string | null;
-  isActive: boolean;
-  directManagerEmployeeId: string | null;
-};
-
-type WorkplaceOption = {
-  id: string;
-  name: string;
-};
-
-type DepartmentOption = {
-  id: string;
-  name: string;
-};
-
-type WorkAreaOption = {
-  id: string;
-  name: string;
-};
-
-type ShiftStatus = "BORRADOR" | "PUBLICADO" | "CANCELADO";
 type ShiftMasterType = "GENERAL" | "RESTAURANTE" | "PISOS";
 
-type Shift = {
+type Workplace = {
   id: string;
-  employeeId: string;
+  name: string;
+};
+
+type Department = {
+  id: string;
+  name: string;
+};
+
+type ShiftMaster = {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
   workplaceId: string;
   departmentId: string;
-  workAreaId: string | null;
-  jobCategoryId: string | null;
-  shiftMasterId: string | null;
-  startAt: string;
-  endAt: string;
-  status: ShiftStatus;
-  notes: string | null;
-  employee: {
-    id: string;
-    firstName: string;
-    lastName: string;
-    photoUrl: string | null;
-  };
-  workplace: {
-    id: string;
-    name: string;
-  };
-  department: {
-    id: string;
-    name: string;
-  };
-  workArea: {
-    id: string;
-    name: string;
-  } | null;
-  jobCategory: {
-    id: string;
-    name: string;
-    shortName: string | null;
-    textColor: string | null;
-  } | null;
-  shiftMaster: {
-    id: string;
-    code: string;
-    name: string;
-    type: ShiftMasterType;
-    backgroundColor: string | null;
-  } | null;
-};
-
-type Absence = {
-  id: string;
-  employeeId: string;
-  absenceTypeId: string;
-  unit: "FULL_DAY" | "HOURLY";
-  startDate: string;
-  endDate: string;
-  startMinutes: number | null;
-  endMinutes: number | null;
-  status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
-  notes: string | null;
-  documentUrl: string | null;
-  employee: {
-    id: string;
-    firstName: string;
-    lastName: string;
-    photoUrl: string | null;
-  };
-  absenceType: {
-    id: string;
-    code: string;
-    name: string;
-    color: string | null;
-  };
-};
-
-type ShiftsApiResponse = {
-  shifts: Shift[];
-  absences: Absence[];
-};
-
-type CellSelection = {
-  employeeId: string;
-  startDate: Date;
-  endDate: Date;
-};
-
-type CurrentUser = {
-  userId: string;
-  role: "ADMIN" | "MANAGER" | "EMPLOYEE";
-  employeeId: string | null;
+  type: ShiftMasterType;
+  startMinute: number;
+  endMinute: number;
+  crossesMidnight: boolean;
+  isPartial: boolean;
+  coversBreakfast: boolean;
+  coversLunch: boolean;
+  coversDinner: boolean;
+  countsForRoomAssignment: boolean;
   isActive: boolean;
-  email: string;
-  name: string | null;
+  workplace: Workplace;
+  department: Department;
 };
 
-const DAY_NAMES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
+type FormState = {
+  code: string;
+  name: string;
+  description: string;
+  workplaceId: string;
+  departmentId: string;
+  type: ShiftMasterType;
+  startTime: string;
+  endTime: string;
+  crossesMidnight: boolean;
+  isPartial: boolean;
+  coversBreakfast: boolean;
+  coversLunch: boolean;
+  coversDinner: boolean;
+  countsForRoomAssignment: boolean;
+  isActive: boolean;
+};
 
+const initialForm: FormState = {
+  code: "",
+  name: "",
+  description: "",
+  workplaceId: "",
+  departmentId: "",
+  type: "GENERAL",
+  startTime: "08:00",
+  endTime: "16:00",
+  crossesMidnight: false,
+  isPartial: false,
+  coversBreakfast: false,
+  coversLunch: false,
+  coversDinner: false,
+  countsForRoomAssignment: false,
+  isActive: true,
+};
 
-
-export default function TurnosPage() {
-
-  const { user, isLoading: isUserLoading, error: userError } = useCurrentUser();
-
-  const currentUser = user as CurrentUser | null;
-
-  const canManageShifts =
-    currentUser?.isActive === true &&
-    (currentUser.role === "ADMIN" || currentUser.role === "MANAGER");
-
-  const canCreateAbsences =
-    currentUser?.isActive === true &&
-    (currentUser.role === "ADMIN" ||
-      currentUser.role === "MANAGER" ||
-      currentUser.role === "EMPLOYEE");
-
-  const [currentWeekStart, setCurrentWeekStart] = useState(() =>
-    getStartOfWeek(new Date())
-  );
-
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [shifts, setShifts] = useState<Shift[]>([]);
-  const [absences, setAbsences] = useState<Absence[]>([]);
-
-  const [workplaces, setWorkplaces] = useState<WorkplaceOption[]>([]);
-  const [departments, setDepartments] = useState<DepartmentOption[]>([]);
-  const [workAreas, setWorkAreas] = useState<WorkAreaOption[]>([]);
+export default function ShiftMastersPage() {
+  const [shiftMasters, setShiftMasters] = useState<ShiftMaster[]>([]);
+  const [workplaces, setWorkplaces] = useState<Workplace[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [form, setForm] = useState<FormState>(initialForm);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
-  const [isCatalogLoading, setIsCatalogLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [showForm, setShowForm] = useState(false);
-  const [showAbsenceForm, setShowAbsenceForm] = useState(false);
-  const [prefillEmployeeId, setPrefillEmployeeId] = useState("");
-  const [prefillDate, setPrefillDate] = useState("");
-  const [prefillEndDate, setPrefillEndDate] = useState("");
-
-  const [showCellActionModal, setShowCellActionModal] = useState(false);
-  const [selectedCell, setSelectedCell] = useState<CellSelection | null>(null);
-
-  const [selectedWorkplaceId, setSelectedWorkplaceId] = useState("all");
-  const [selectedDepartmentId, setSelectedDepartmentId] = useState("all");
-  const [selectedWorkAreaId, setSelectedWorkAreaId] = useState("all");
-  const [selectedStatus, setSelectedStatus] = useState("all");
-  const [employeeSearch, setEmployeeSearch] = useState("");
-
-  const weekDays = useMemo(
-    () => Array.from({ length: 7 }, (_, index) => addDays(currentWeekStart, index)),
-    [currentWeekStart]
-  );
-
-  const selectedCellEmployee = useMemo(() => {
-    if (!selectedCell) return null;
-    return employees.find((employee) => employee.id === selectedCell.employeeId) ?? null;
-  }, [selectedCell, employees]);
-
-  const selectedCellCanManageShifts =
-  selectedCellEmployee != null &&
-  canManageShiftsForEmployeeFrontend(currentUser, selectedCellEmployee);
-
-  const selectedCellCanCreateAbsences =
-  selectedCellEmployee != null &&
-  canCreateAbsenceForEmployeeFrontend(currentUser, selectedCellEmployee);
+  const filteredDepartments = useMemo(() => {
+    if (!form.workplaceId) return departments;
+    return departments;
+  }, [departments, form.workplaceId]);
 
   useEffect(() => {
-    void loadWorkplaces();
+    void loadData();
   }, []);
 
   useEffect(() => {
-    void loadDepartments(selectedWorkplaceId);
-  }, [selectedWorkplaceId]);
-
-  useEffect(() => {
-    void loadWorkAreas(selectedDepartmentId);
-  }, [selectedDepartmentId]);
-
-  useEffect(() => {
-    void loadWeekData(currentWeekStart);
-  }, [
-    currentWeekStart,
-    selectedWorkplaceId,
-    selectedDepartmentId,
-    selectedWorkAreaId,
-  ]);
-
-  async function loadWorkplaces() {
-    try {
-      setIsCatalogLoading(true);
-      setError(null);
-
-      const response = await fetch("/api/workplaces", {
-        cache: "no-store",
-        credentials: "include",
-      });
-
-      if (!response.ok) {
-        throw new Error("No se pudieron cargar los lugares de trabajo.");
-      }
-
-      const data = (await response.json()) as WorkplaceOption[];
-
-      setWorkplaces(
-        [...data]
-          .filter((item) => item.id && item.name)
-          .sort((a, b) => a.name.localeCompare(b.name, "es"))
-      );
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Ha ocurrido un error inesperado."
-      );
-      setWorkplaces([]);
-    } finally {
-      setIsCatalogLoading(false);
-    }
-  }
-
-  async function loadDepartments(workplaceId: string) {
-    try {
-      setError(null);
-
-      const query =
-        workplaceId !== "all"
-          ? `?workplaceId=${encodeURIComponent(workplaceId)}`
-          : "";
-
-      const response = await fetch(`/api/departments${query}`, {
-        cache: "no-store",
-        credentials: "include",
-      });
-
-      if (!response.ok) {
-        throw new Error("No se pudieron cargar los departamentos.");
-      }
-
-      const data = (await response.json()) as DepartmentOption[];
-
-      setDepartments(
-        [...data]
-          .filter((item) => item.id && item.name)
-          .sort((a, b) => a.name.localeCompare(b.name, "es"))
-      );
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Ha ocurrido un error inesperado."
-      );
+    if (!form.workplaceId) {
       setDepartments([]);
+      setForm((prev) => ({ ...prev, departmentId: "" }));
+      return;
     }
-  }
 
-  async function loadWorkAreas(departmentId: string) {
-    try {
-      setError(null);
+    void loadDepartments(form.workplaceId);
+  }, [form.workplaceId]);
 
-      if (departmentId === "all") {
-        setWorkAreas([]);
-        return;
-      }
-
-      const response = await fetch(
-        `/api/work-areas?departmentId=${encodeURIComponent(departmentId)}`,
-        {
-          cache: "no-store",
-          credentials: "include",
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error("No se pudieron cargar las zonas.");
-      }
-
-      const data = (await response.json()) as WorkAreaOption[];
-
-      setWorkAreas(
-        [...data]
-          .filter((item) => item.id && item.name)
-          .sort((a, b) => a.name.localeCompare(b.name, "es"))
-      );
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Ha ocurrido un error inesperado."
-      );
-      setWorkAreas([]);
-    }
-  }
-
-  async function loadWeekData(weekStart: Date) {
+  async function loadData() {
     try {
       setIsLoading(true);
       setError(null);
 
-      const startAt = startOfDay(weekStart);
-      const endAt = endOfDay(addDays(weekStart, 6));
-
-      const shiftParams = new URLSearchParams({
-        startAt: startAt.toISOString(),
-        endAt: endAt.toISOString(),
-      });
-
-      if (selectedWorkplaceId !== "all") {
-        shiftParams.set("workplaceId", selectedWorkplaceId);
-      }
-
-      if (selectedDepartmentId !== "all") {
-        shiftParams.set("departmentId", selectedDepartmentId);
-      }
-
-      if (selectedWorkAreaId !== "all") {
-        shiftParams.set("workAreaId", selectedWorkAreaId);
-      }
-
-      const [employeesResponse, shiftsResponse] = await Promise.all([
-        fetch("/api/employees", {
-          cache: "no-store",
-          credentials: "include",
-        }),
-        fetch(`/api/shifts?${shiftParams.toString()}`, {
-          cache: "no-store",
-          credentials: "include",
-        }),
+      const [shiftMastersResponse, workplacesResponse] = await Promise.all([
+        fetch("/api/shift-masters", { cache: "no-store" }),
+        fetch("/api/workplaces", { cache: "no-store" }),
       ]);
 
-      if (!employeesResponse.ok) {
-        throw new Error("No se pudieron cargar los empleados.");
+      const shiftMastersData = await shiftMastersResponse.json();
+      const workplacesData = await workplacesResponse.json();
+
+      if (!shiftMastersResponse.ok) {
+        throw new Error(
+          shiftMastersData.error || "No se pudieron cargar los maestros de turno."
+        );
       }
 
-      if (!shiftsResponse.ok) {
-        throw new Error("No se pudo cargar el cuadrante.");
+      if (!workplacesResponse.ok) {
+        throw new Error(
+          workplacesData.error || "No se pudieron cargar los centros."
+        );
       }
 
-      const employeesData = (await employeesResponse.json()) as Employee[];
-      const shiftsData = (await shiftsResponse.json()) as
-        | ShiftsApiResponse
-        | {
-            shifts?: Shift[];
-            absences?: Absence[];
-            error?: string;
-          };
-
-      setEmployees(
-        employeesData
-          .filter((employee) => employee.isActive)
-          .sort((a, b) =>
-            `${a.lastName} ${a.firstName}`.localeCompare(
-              `${b.lastName} ${b.firstName}`,
-              "es"
-            )
-          )
-      );
-
-      setShifts(Array.isArray(shiftsData?.shifts) ? shiftsData.shifts : []);
-      setAbsences(Array.isArray(shiftsData?.absences) ? shiftsData.absences : []);
+      setShiftMasters(Array.isArray(shiftMastersData) ? shiftMastersData : []);
+      setWorkplaces(Array.isArray(workplacesData) ? workplacesData : []);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Ha ocurrido un error inesperado."
-      );
-      setEmployees([]);
-      setShifts([]);
-      setAbsences([]);
+      setError(err instanceof Error ? err.message : "Error cargando datos.");
     } finally {
       setIsLoading(false);
     }
   }
 
-  const workplaceOptions = useMemo(() => workplaces, [workplaces]);
-  const departmentOptions = useMemo(() => departments, [departments]);
-  const workAreaOptions = useMemo(() => workAreas, [workAreas]);
+  async function loadDepartments(workplaceId: string) {
+    try {
+      const response = await fetch(
+        `/api/departments?workplaceId=${encodeURIComponent(workplaceId)}`,
+        { cache: "no-store" }
+      );
 
-  const filteredShifts = useMemo<Shift[]>(() => {
-    const safeShifts = Array.isArray(shifts) ? shifts : [];
+      const data = await response.json();
 
-    if (selectedStatus === "all") {
-      return safeShifts;
-    }
-
-    return safeShifts.filter((shift) => shift.status === selectedStatus);
-  }, [shifts, selectedStatus]);
-
-  const filteredEmployees = useMemo(() => {
-    const normalizedSearch = employeeSearch.trim().toLocaleLowerCase("es");
-    const safeFilteredShifts = Array.isArray(filteredShifts) ? filteredShifts : [];
-
-    const employeeIdsWithVisibleShifts = new Set(
-      safeFilteredShifts.map((shift) => shift.employeeId)
-    );
-
-    const employeeIdsWithVisibleAbsences = new Set(
-      absences
-        .filter((absence) => absence.status === "APPROVED")
-        .map((absence) => absence.employeeId)
-    );
-
-    return employees.filter((employee) => {
-      const fullName = `${employee.firstName} ${employee.lastName}`.toLocaleLowerCase("es");
-      const matchesSearch =
-        normalizedSearch === "" || fullName.includes(normalizedSearch);
-
-      const hasVisibleShift = employeeIdsWithVisibleShifts.has(employee.id);
-      const hasVisibleAbsence = employeeIdsWithVisibleAbsences.has(employee.id);
-
-      if (
-        selectedWorkplaceId === "all" &&
-        selectedDepartmentId === "all" &&
-        selectedWorkAreaId === "all" &&
-        selectedStatus === "all"
-      ) {
-        return matchesSearch;
+      if (!response.ok) {
+        throw new Error(data.error || "No se pudieron cargar los departamentos.");
       }
 
-      return matchesSearch && (hasVisibleShift || hasVisibleAbsence);
+      setDepartments(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Error cargando departamentos."
+      );
+      setDepartments([]);
+    }
+  }
+
+  function updateField<K extends keyof FormState>(key: K, value: FormState[K]) {
+    setForm((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  }
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    try {
+      setIsSubmitting(true);
+      setError(null);
+
+      if (!form.code.trim()) throw new Error("El código es obligatorio.");
+      if (!form.name.trim()) throw new Error("El nombre es obligatorio.");
+      if (!form.workplaceId) throw new Error("Selecciona un centro.");
+      if (!form.departmentId) throw new Error("Selecciona un departamento.");
+
+      const response = await fetch(
+  editingId ? `/api/shift-masters/${editingId}` : "/api/shift-masters",
+  {
+    method: editingId ? "PATCH" : "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+          code: form.code.trim(),
+          name: form.name.trim(),
+          description: form.description.trim() || null,
+          workplaceId: form.workplaceId,
+          departmentId: form.departmentId,
+          type: form.type,
+          startMinute: timeToMinutes(form.startTime),
+          endMinute: timeToMinutes(form.endTime),
+          crossesMidnight: form.crossesMidnight,
+          isPartial: form.isPartial,
+          coversBreakfast: form.coversBreakfast,
+          coversLunch: form.coversLunch,
+          coversDinner: form.coversDinner,
+          countsForRoomAssignment: form.countsForRoomAssignment,
+          isActive: form.isActive,
+                }),
+      }
+    );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "No se pudo crear el maestro de turno.");
+      }
+
+      setForm(initialForm);
+setEditingId(null);
+setDepartments([]);
+await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al guardar.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+function handleEdit(item: ShiftMaster) {
+  setEditingId(item.id);
+
+  setForm({
+    code: item.code,
+    name: item.name,
+    description: item.description ?? "",
+    workplaceId: item.workplaceId,
+    departmentId: item.departmentId,
+    type: item.type,
+    startTime: formatMinutes(item.startMinute),
+    endTime: formatMinutes(item.endMinute),
+    crossesMidnight: item.crossesMidnight,
+    isPartial: item.isPartial,
+    coversBreakfast: item.coversBreakfast,
+    coversLunch: item.coversLunch,
+    coversDinner: item.coversDinner,
+    countsForRoomAssignment: item.countsForRoomAssignment,
+    isActive: item.isActive,
+  });
+
+  void loadDepartments(item.workplaceId);
+}
+
+async function handleDelete(id: string) {
+  const confirmed = window.confirm(
+    "¿Seguro que quieres eliminar este maestro de turno?"
+  );
+
+  if (!confirmed) return;
+
+  try {
+    setError(null);
+
+    const response = await fetch(`/api/shift-masters/${id}`, {
+      method: "DELETE",
     });
-  }, [
-    employees,
-    filteredShifts,
-    absences,
-    employeeSearch,
-    selectedWorkplaceId,
-    selectedDepartmentId,
-    selectedWorkAreaId,
-    selectedStatus,
-  ]);
 
-  function goToPreviousWeek() {
-    setCurrentWeekStart((prev) => addDays(prev, -7));
-  }
+    const data = await response.json();
 
-  function goToNextWeek() {
-    setCurrentWeekStart((prev) => addDays(prev, 7));
-  }
-
-  function goToCurrentWeek() {
-    setCurrentWeekStart(getStartOfWeek(new Date()));
-  }
-
-  function resetFilters() {
-    setSelectedWorkplaceId("all");
-    setSelectedDepartmentId("all");
-    setSelectedWorkAreaId("all");
-    setSelectedStatus("all");
-    setEmployeeSearch("");
-  }
-
-  function handleOpenShiftForm(employeeId?: string, date?: Date) {
-    if (!canManageShifts) return;
-
-    if (employeeId) {
-      const employee = employees.find((item) => item.id === employeeId);
-      if (!employee || !canManageShiftsForEmployeeFrontend(currentUser, employee)) {
-  return;
-}
+    if (!response.ok) {
+      throw new Error(data.error || "No se pudo eliminar el maestro de turno.");
     }
 
-    setPrefillEmployeeId(employeeId ?? "");
-    setPrefillDate(date ? toInputDate(date) : "");
-    setShowForm(true);
+    await loadData();
+  } catch (err) {
+    setError(err instanceof Error ? err.message : "Error al eliminar.");
   }
-
-  function handleCloseShiftForm() {
-    setShowForm(false);
-    setPrefillEmployeeId("");
-    setPrefillDate("");
-    setPrefillEndDate("");
-  }
-
-  function handleOpenAbsenceForm(employeeId?: string, date?: Date) {
-    if (!canCreateAbsences) return;
-
-    if (employeeId) {
-      const employee = employees.find((item) => item.id === employeeId);
-      if (!employee || !canCreateAbsenceForEmployeeFrontend(currentUser, employee)) {
-  return;
-}
-    }
-
-    setPrefillEmployeeId(employeeId ?? "");
-    setPrefillDate(date ? toInputDate(date) : "");
-    setShowAbsenceForm(true);
-  }
-
-  function handleCloseAbsenceForm() {
-    setShowAbsenceForm(false);
-    setPrefillEmployeeId("");
-    setPrefillDate("");
-    setPrefillEndDate("");
-  }
-
-  function handleCellClick(employee: Employee, date: Date) {
-    if (!canInteractWithEmployeeRowFrontend(currentUser, employee)) {
-  return;
 }
 
-    setSelectedCell({
-      employeeId: employee.id,
-      startDate: date,
-      endDate: date,
-    });
-
-    setShowCellActionModal(true);
-  }
-
-  function handleRangeSelect(employee: Employee, start: Date, end: Date) {
-    if (!canInteractWithEmployeeRowFrontend(currentUser, employee)) {
-  return;
+function cancelEdit() {
+  setEditingId(null);
+  setForm(initialForm);
+  setDepartments([]);
 }
-
-    const normalizedStart = start <= end ? start : end;
-    const normalizedEnd = start <= end ? end : start;
-
-    setSelectedCell({
-      employeeId: employee.id,
-      startDate: normalizedStart,
-      endDate: normalizedEnd,
-    });
-
-    setShowCellActionModal(true);
-  }
-
-  function handleCloseCellActionModal() {
-    setShowCellActionModal(false);
-    setSelectedCell(null);
-  }
-
-  function handleCreateShiftFromCell() {
-    if (!selectedCell || !selectedCellEmployee || !selectedCellCanManageShifts) {
-      return;
-    }
-
-    setShowCellActionModal(false);
-    handleOpenShiftForm(selectedCell.employeeId, selectedCell.startDate);
-    setSelectedCell(null);
-  }
-
-  function handleCreateAbsenceFromCell() {
-    if (
-      !selectedCell ||
-      !selectedCellEmployee ||
-      !selectedCellCanCreateAbsences
-    ) {
-      return;
-    }
-
-    setShowCellActionModal(false);
-    setPrefillEmployeeId(selectedCell.employeeId);
-    setPrefillDate(toInputDate(selectedCell.startDate));
-    setPrefillEndDate(toInputDate(selectedCell.endDate));
-    setShowAbsenceForm(true);
-    setSelectedCell(null);
-  }
-
-  async function handleCreated() {
-    await loadWeekData(currentWeekStart);
-  }
-
   return (
-    <>
-      <div className="page-shell">
-        {userError ? (
-          <div className="state-card error">
-            <p>{userError}</p>
-          </div>
-        ) : null}
-
-        {!isUserLoading && currentUser?.role === "EMPLOYEE" ? (
-          <div className="state-card info">
-            <p>
-              Estás viendo el cuadrante como empleado. Solo puedes registrar
-              ausencias sobre tu propia fila.
-            </p>
-          </div>
-        ) : null}
-
-        {!isUserLoading && currentUser?.role === "MANAGER" ? (
-          <div className="state-card info">
-            <p>
-              Estás viendo el cuadrante como manager. Solo puedes gestionar tu
-              propia fila y la de tus subordinados directos.
-            </p>
-          </div>
-        ) : null}
-
-        <div className="page-header">
-          <div>
-            <p className="page-eyebrow">TURNOHOTEL</p>
-            <h1 className="page-title">Cuadrantes</h1>
-            <p className="page-subtitle">
-              Vista semanal operativa para organizar personal y turnos por día.
-            </p>
-          </div>
-
-          <div className="toolbar">
-            {canManageShifts ? (
-              <button
-                className="toolbar-button primary"
-                onClick={() => handleOpenShiftForm()}
-                disabled={isUserLoading}
-              >
-                + Nuevo registro
-              </button>
-            ) : null}
-
-            <button className="toolbar-button secondary" onClick={goToPreviousWeek}>
-              ← Semana anterior
-            </button>
-
-            <button className="toolbar-button secondary" onClick={goToCurrentWeek}>
-              Semana actual
-            </button>
-
-            <button className="toolbar-button secondary" onClick={goToNextWeek}>
-              Semana siguiente →
-            </button>
-          </div>
+    <main className="page-shell">
+      <section className="page-header">
+        <div>
+          <p className="eyebrow">Maestros</p>
+          <h1>Maestro de turnos</h1>
+          <p className="page-description">
+            Gestiona las plantillas de turno que después se usan en cuadrantes y
+            propuestas automáticas.
+          </p>
         </div>
+      </section>
 
-        <div className="week-range-card">
-          <div>
-            <span className="week-range-label">Cuadrante semanal</span>
-            <strong className="week-range-value">
-              {formatLongDate(weekDays[0])} — {formatLongDate(weekDays[6])}
-            </strong>
-          </div>
-
-          <div className="week-summary">
-            <div className="summary-item">
-              <span className="summary-value">{filteredEmployees.length}</span>
-              <span className="summary-label">empleados</span>
-            </div>
-            <div className="summary-item">
-              <span className="summary-value">{filteredShifts.length}</span>
-              <span className="summary-label">registros</span>
-            </div>
-          </div>
+      {error ? (
+        <div className="state-card error">
+          <p>{error}</p>
         </div>
+      ) : null}
 
-        <div className="filters-card">
-          <div className="filters-header">
-            <div>
-              <h2 className="filters-title">Filtros del cuadrante</h2>
-              <p className="filters-subtitle">
-                Acota la vista por centro, departamento, zona, estado o empleado.
-              </p>
+      <section className="layout-grid">
+        <form className="form-card" onSubmit={handleSubmit}>
+          <h2>{editingId ? "Editar maestro de turno" : "Nuevo maestro de turno"}</h2>
+
+          <div className="form-grid">
+            <div className="field">
+              <label>Código</label>
+              <input
+                value={form.code}
+                onChange={(event) => updateField("code", event.target.value)}
+                placeholder="M1, CENA, PISOS..."
+              />
             </div>
 
-            <button
-              type="button"
-              className="toolbar-button ghost"
-              onClick={resetFilters}
-            >
-              Limpiar filtros
-            </button>
-          </div>
+            <div className="field">
+              <label>Nombre</label>
+              <input
+                value={form.name}
+                onChange={(event) => updateField("name", event.target.value)}
+                placeholder="Mañana, Cena, Pisos..."
+              />
+            </div>
 
-          <div className="filters-grid">
-            <div className="filter-field">
-              <label htmlFor="workplaceFilter">Lugar de trabajo</label>
+            <div className="field">
+              <label>Centro</label>
               <select
-                id="workplaceFilter"
-                value={selectedWorkplaceId}
-                onChange={(event) => {
-                  setSelectedWorkplaceId(event.target.value);
-                  setSelectedDepartmentId("all");
-                  setSelectedWorkAreaId("all");
-                  setDepartments([]);
-                  setWorkAreas([]);
-                }}
-                disabled={isCatalogLoading}
+                value={form.workplaceId}
+                onChange={(event) =>
+                  updateField("workplaceId", event.target.value)
+                }
               >
-                <option value="all">Todos</option>
-                {workplaceOptions.map((workplace) => (
+                <option value="">Selecciona centro</option>
+                {workplaces.map((workplace) => (
                   <option key={workplace.id} value={workplace.id}>
                     {workplace.name}
                   </option>
@@ -709,20 +334,17 @@ export default function TurnosPage() {
               </select>
             </div>
 
-            <div className="filter-field">
-              <label htmlFor="departmentFilter">Departamento</label>
+            <div className="field">
+              <label>Departamento</label>
               <select
-                id="departmentFilter"
-                value={selectedDepartmentId}
-                onChange={(event) => {
-                  setSelectedDepartmentId(event.target.value);
-                  setSelectedWorkAreaId("all");
-                  setWorkAreas([]);
-                }}
-                disabled={isCatalogLoading}
+                value={form.departmentId}
+                onChange={(event) =>
+                  updateField("departmentId", event.target.value)
+                }
+                disabled={!form.workplaceId}
               >
-                <option value="all">Todos</option>
-                {departmentOptions.map((department) => (
+                <option value="">Selecciona departamento</option>
+                {filteredDepartments.map((department) => (
                   <option key={department.id} value={department.id}>
                     {department.name}
                   </option>
@@ -730,183 +352,205 @@ export default function TurnosPage() {
               </select>
             </div>
 
-            <div className="filter-field">
-              <label htmlFor="workAreaFilter">Zona</label>
+            <div className="field">
+              <label>Tipo</label>
               <select
-                id="workAreaFilter"
-                value={selectedWorkAreaId}
-                onChange={(event) => setSelectedWorkAreaId(event.target.value)}
-                disabled={selectedDepartmentId === "all"}
+                value={form.type}
+                onChange={(event) =>
+                  updateField("type", event.target.value as ShiftMasterType)
+                }
               >
-                <option value="all">
-                  {selectedDepartmentId === "all"
-                    ? "Selecciona un departamento"
-                    : "Todas"}
-                </option>
-                {workAreaOptions.map((workArea) => (
-                  <option key={workArea.id} value={workArea.id}>
-                    {workArea.name}
-                  </option>
-                ))}
+                <option value="GENERAL">General</option>
+                <option value="RESTAURANTE">Restaurante</option>
+                <option value="PISOS">Pisos</option>
               </select>
             </div>
 
-            <div className="filter-field">
-              <label htmlFor="statusFilter">Estado</label>
-              <select
-                id="statusFilter"
-                value={selectedStatus}
-                onChange={(event) => setSelectedStatus(event.target.value)}
-              >
-                <option value="all">Todos</option>
-                <option value="BORRADOR">Borrador</option>
-                <option value="PUBLICADO">Publicado</option>
-                <option value="CANCELADO">Cancelado</option>
-              </select>
-            </div>
-
-            <div className="filter-field employee-search-field">
-              <label htmlFor="employeeSearch">Empleado</label>
+            <div className="field">
+              <label>Inicio</label>
               <input
-                id="employeeSearch"
-                type="text"
-                placeholder="Buscar por nombre o apellidos"
-                value={employeeSearch}
-                onChange={(event) => setEmployeeSearch(event.target.value)}
+                type="time"
+                value={form.startTime}
+                onChange={(event) => updateField("startTime", event.target.value)}
+              />
+            </div>
+
+            <div className="field">
+              <label>Fin</label>
+              <input
+                type="time"
+                value={form.endTime}
+                onChange={(event) => updateField("endTime", event.target.value)}
+              />
+            </div>
+
+            <div className="field full">
+              <label>Descripción</label>
+              <textarea
+                value={form.description}
+                onChange={(event) =>
+                  updateField("description", event.target.value)
+                }
+                placeholder="Notas internas sobre esta plantilla"
+                rows={3}
               />
             </div>
           </div>
-        </div>
 
-        {error ? (
-          <div className="state-card error">
-            <p>{error}</p>
+          <div className="checks-grid">
+            <label>
+              <input
+                type="checkbox"
+                checked={form.crossesMidnight}
+                onChange={(event) =>
+                  updateField("crossesMidnight", event.target.checked)
+                }
+              />
+              Cruza medianoche
+            </label>
+
+            <label>
+              <input
+                type="checkbox"
+                checked={form.isPartial}
+                onChange={(event) =>
+                  updateField("isPartial", event.target.checked)
+                }
+              />
+              Parcial
+            </label>
+
+            <label>
+              <input
+                type="checkbox"
+                checked={form.coversBreakfast}
+                onChange={(event) =>
+                  updateField("coversBreakfast", event.target.checked)
+                }
+              />
+              Desayuno
+            </label>
+
+            <label>
+              <input
+                type="checkbox"
+                checked={form.coversLunch}
+                onChange={(event) =>
+                  updateField("coversLunch", event.target.checked)
+                }
+              />
+              Almuerzo
+            </label>
+
+            <label>
+              <input
+                type="checkbox"
+                checked={form.coversDinner}
+                onChange={(event) =>
+                  updateField("coversDinner", event.target.checked)
+                }
+              />
+              Cena
+            </label>
+
+            <label>
+              <input
+                type="checkbox"
+                checked={form.countsForRoomAssignment}
+                onChange={(event) =>
+                  updateField("countsForRoomAssignment", event.target.checked)
+                }
+              />
+              Cuenta para habitaciones
+            </label>
+
+            <label>
+              <input
+                type="checkbox"
+                checked={form.isActive}
+                onChange={(event) => updateField("isActive", event.target.checked)}
+              />
+              Activo
+            </label>
           </div>
-        ) : null}
 
-        {isLoading ? (
-          <div className="state-card">
-            <p>Cargando cuadrante semanal...</p>
-          </div>
-        ) : (
-          <div className="planner-card">
-            <div className="planner-grid">
-              <div className="planner-corner">Empleado</div>
+          <div className="actions">
+  {editingId ? (
+    <button type="button" className="secondary-button" onClick={cancelEdit}>
+      Cancelar
+    </button>
+  ) : null}
 
-              {weekDays.map((day, index) => (
-                <div key={day.toISOString()} className="planner-day-header">
-                  <span className="planner-day-name">{DAY_NAMES[index]}</span>
-                  <span className="planner-day-date">{formatDayNumber(day)}</span>
-                </div>
+  <button type="submit" disabled={isSubmitting}>
+    {isSubmitting
+      ? "Guardando..."
+      : editingId
+      ? "Guardar cambios"
+      : "Crear maestro"}
+  </button>
+</div>
+
+        </form>
+
+        <section className="list-card">
+          <h2>Plantillas existentes</h2>
+
+          {isLoading ? (
+            <div className="state-card">
+              <p>Cargando maestros de turno...</p>
+            </div>
+          ) : shiftMasters.length === 0 ? (
+            <div className="state-card">
+              <p>No hay maestros de turno creados todavía.</p>
+            </div>
+          ) : (
+            <div className="shift-master-list">
+              {shiftMasters.map((item) => (
+                <article key={item.id} className="shift-master-card">
+                  <div>
+                    <div className="card-top">
+                      <strong>{item.name}</strong>
+                      <span className={`badge ${item.type.toLowerCase()}`}>
+                        {formatType(item.type)}
+                      </span>
+                    </div>
+
+                    <p>
+                      {item.code} · {formatMinutes(item.startMinute)} -{" "}
+                      {formatMinutes(item.endMinute)}
+                      {item.crossesMidnight ? " · Cruza medianoche" : ""}
+                    </p>
+
+                    <p>
+                      {item.workplace?.name ?? "Sin centro"} ·{" "}
+                      {item.department?.name ?? "Sin departamento"}
+                    </p>
+                  </div>
+
+                  <div className="card-actions">
+  <span className={item.isActive ? "status active" : "status inactive"}>
+    {item.isActive ? "Activo" : "Inactivo"}
+  </span>
+
+  <button type="button" className="small-button" onClick={() => handleEdit(item)}>
+    Editar
+  </button>
+
+  <button
+    type="button"
+    className="small-button danger"
+    onClick={() => handleDelete(item.id)}
+  >
+    Borrar
+  </button>
+</div>
+
+                </article>
               ))}
-
-              {filteredEmployees.map((employee) => {
-                const canInteract = canInteractWithEmployeeRowFrontend(currentUser, employee);
-
-                return (
-                  <WeeklyEmployeeRow
-                    key={employee.id}
-                    employee={employee}
-                    weekDays={weekDays}
-                    shifts={filteredShifts.filter((shift) => shift.employeeId === employee.id)}
-                    absences={absences.filter((absence) => absence.employeeId === employee.id)}
-                    canInteract={canInteract}
-                    onDayClick={(day) => handleCellClick(employee, day)}
-                    onRangeSelect={(start, end) =>
-                      handleRangeSelect(employee, start, end)
-                    }
-                  />
-                );
-              })}
             </div>
-          </div>
-        )}
-
-        {!isLoading && !error && filteredEmployees.length === 0 ? (
-          <div className="state-card">
-            <p>No hay resultados para los filtros seleccionados.</p>
-          </div>
-        ) : null}
-      </div>
-
-      {showForm ? (
-        <ShiftForm
-          onClose={handleCloseShiftForm}
-          onCreated={handleCreated}
-          initialEmployeeId={prefillEmployeeId}
-          initialDate={prefillDate}
-        />
-      ) : null}
-
-      {showAbsenceForm ? (
-        <AbsenceForm
-          onClose={handleCloseAbsenceForm}
-          onCreated={handleCreated}
-          initialEmployeeId={prefillEmployeeId}
-          initialDate={prefillDate}
-          initialEndDate={prefillEndDate}
-        />
-      ) : null}
-
-      {showCellActionModal && selectedCell ? (
-        <div className="cell-action-overlay" onClick={handleCloseCellActionModal}>
-          <div
-            className="cell-action-modal"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="cell-action-header">
-              <h3 className="cell-action-title">Crear desde cuadrante</h3>
-              <p className="cell-action-subtitle">
-                Elige qué quieres crear para esta celda.
-              </p>
-            </div>
-
-            <div className="cell-action-body">
-              {selectedCellCanManageShifts ? (
-                <button
-                  type="button"
-                  className="cell-action-option"
-                  onClick={handleCreateShiftFromCell}
-                >
-                  <span className="cell-action-option-title">Crear turno</span>
-                  <span className="cell-action-option-text">
-                    Abrir el formulario de turno con empleado y fecha precargados.
-                  </span>
-                </button>
-              ) : null}
-
-              {selectedCellCanCreateAbsences ? (
-                <button
-                  type="button"
-                  className="cell-action-option"
-                  onClick={handleCreateAbsenceFromCell}
-                >
-                  <span className="cell-action-option-title">Crear ausencia</span>
-                  <span className="cell-action-option-text">
-                    Abrir el formulario de ausencia con empleado y fecha precargados.
-                  </span>
-                </button>
-              ) : null}
-
-              {!selectedCellCanManageShifts && !selectedCellCanCreateAbsences ? (
-                <div className="cell-action-empty">
-                  No tienes permisos para crear registros sobre esta fila.
-                </div>
-              ) : null}
-            </div>
-
-            <div className="cell-action-footer">
-              <button
-                type="button"
-                className="toolbar-button ghost"
-                onClick={handleCloseCellActionModal}
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+          )}
+        </section>
+      </section>
 
       <style jsx>{`
         .page-shell {
@@ -923,208 +567,180 @@ export default function TurnosPage() {
           justify-content: space-between;
           align-items: flex-start;
           gap: 12px;
-          flex-wrap: wrap;
         }
 
-        .page-eyebrow {
+        .eyebrow {
           margin: 0 0 4px 0;
           font-size: 11px;
-          font-weight: 700;
+          font-weight: 800;
           letter-spacing: 0.08em;
           text-transform: uppercase;
           color: #b7791f;
         }
 
-        .page-title {
+        h1 {
           margin: 0;
-          font-size: 24px;
-          line-height: 1.1;
-          font-weight: 800;
+          font-size: 26px;
+          font-weight: 900;
           color: #0f172a;
         }
 
-        .page-subtitle {
-          margin: 6px 0 0 0;
-          color: #475569;
-          font-size: 12px;
+        .page-description {
+          margin: 6px 0 0;
+          color: #64748b;
+          font-size: 13px;
         }
 
-        .toolbar {
-          display: flex;
-          gap: 8px;
-          flex-wrap: wrap;
+        .layout-grid {
+          display: grid;
+          grid-template-columns: minmax(360px, 0.9fr) minmax(0, 1.1fr);
+          gap: 16px;
+          align-items: start;
         }
 
-        .toolbar-button {
-          border: none;
-          border-radius: 10px;
-          padding: 8px 10px;
-          font-size: 12px;
-          font-weight: 600;
-          cursor: pointer;
-          transition: transform 0.15s ease, opacity 0.15s ease;
-        }
-
-        .toolbar-button:hover {
-          transform: translateY(-1px);
-        }
-
-        .toolbar-button.primary {
-          background: #b7791f;
-          color: white;
-        }
-
-        .toolbar-button.secondary {
-          background: #0f172a;
-          color: white;
-        }
-
-        .toolbar-button.ghost {
-          background: #e2e8f0;
-          color: #0f172a;
-        }
-
-        .toolbar-button:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-          transform: none;
-        }
-
-        .week-range-card,
-        .planner-card,
-        .state-card,
-        .filters-card {
+        .form-card,
+        .list-card,
+        .state-card {
           background: white;
           border: 1px solid #e2e8f0;
           border-radius: 16px;
           box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
         }
 
-        .week-range-card {
-          padding: 14px 16px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-          flex-wrap: wrap;
-        }
-
-        .week-range-label {
-          display: block;
-          font-size: 11px;
-          font-weight: 700;
-          text-transform: uppercase;
-          color: #64748b;
-          margin-bottom: 4px;
-        }
-
-        .week-range-value {
-          font-size: 14px;
-          color: #0f172a;
-        }
-
-        .week-summary {
-          display: flex;
-          gap: 8px;
-        }
-
-        .summary-item {
-          min-width: 72px;
-          padding: 8px 10px;
-          border-radius: 12px;
-          background: #f8fafc;
-          border: 1px solid #e2e8f0;
-          text-align: center;
-        }
-
-        .summary-value {
-          display: block;
-          font-size: 18px;
-          font-weight: 800;
-          color: #0f172a;
-        }
-
-        .summary-label {
-          display: block;
-          font-size: 11px;
-          color: #64748b;
-          margin-top: 2px;
-        }
-
-        .filters-card {
+        .form-card,
+        .list-card {
           padding: 16px;
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
         }
 
-        .filters-header {
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 10px;
-          flex-wrap: wrap;
-        }
-
-        .filters-title {
-          margin: 0;
-          font-size: 16px;
-          font-weight: 800;
+        h2 {
+          margin: 0 0 14px;
+          font-size: 18px;
+          font-weight: 900;
           color: #0f172a;
         }
 
-        .filters-subtitle {
-          margin: 4px 0 0 0;
-          font-size: 12px;
-          color: #64748b;
-        }
-
-        .filters-grid {
+        .form-grid {
           display: grid;
-          grid-template-columns: repeat(5, minmax(110px, 1fr));
-          gap: 10px;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
         }
 
-        .filter-field {
+        .field {
           display: flex;
           flex-direction: column;
           gap: 6px;
-          min-width: 0;
         }
 
-        .filter-field label {
-          font-size: 11px;
-          font-weight: 700;
+        .field.full {
+          grid-column: 1 / -1;
+        }
+
+        label {
+          font-size: 12px;
+          font-weight: 800;
           color: #334155;
         }
 
-        .filter-field select,
-        .filter-field input {
+        input,
+        select,
+        textarea {
           width: 100%;
           border: 1px solid #cbd5e1;
           border-radius: 10px;
-          padding: 8px 10px;
-          font-size: 12px;
+          padding: 9px 10px;
+          font-size: 13px;
           color: #0f172a;
           background: white;
           outline: none;
-          min-width: 0;
         }
 
-        .filter-field select:focus,
-        .filter-field input:focus {
+        input:focus,
+        select:focus,
+        textarea:focus {
           border-color: #b7791f;
           box-shadow: 0 0 0 3px rgba(183, 121, 31, 0.12);
         }
 
-        .filter-field select:disabled {
+        select:disabled {
           background: #f8fafc;
           color: #94a3b8;
+        }
+
+        .checks-grid {
+          margin-top: 14px;
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px;
+        }
+
+        .checks-grid label {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px;
+          border: 1px solid #e2e8f0;
+          border-radius: 10px;
+          background: #f8fafc;
+          font-size: 12px;
+        }
+
+        .checks-grid input {
+          width: auto;
+        }
+
+        .actions {
+          margin-top: 14px;
+          display: flex;
+          justify-content: flex-end;
+        }
+        
+        .actions {
+  gap: 8px;
+}
+
+.secondary-button {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.card-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.small-button {
+  padding: 7px 10px;
+  font-size: 11px;
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.small-button.danger {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+        button {
+          border: none;
+          border-radius: 10px;
+          padding: 10px 14px;
+          background: #b7791f;
+          color: white;
+          font-size: 13px;
+          font-weight: 800;
+          cursor: pointer;
+        }
+
+        button:disabled {
+          opacity: 0.6;
           cursor: not-allowed;
         }
 
         .state-card {
-          padding: 18px;
+          padding: 14px;
+          color: #334155;
         }
 
         .state-card.error {
@@ -1133,763 +749,107 @@ export default function TurnosPage() {
           color: #991b1b;
         }
 
-        .state-card.info {
-          border-color: #cbd5e1;
-          background: #f8fafc;
-          color: #334155;
-        }
-
-        .planner-card {
-          overflow-x: hidden;
-          overflow-y: auto;
-        }
-
-        .planner-grid {
-          display: grid;
-          grid-template-columns: 110px repeat(7, minmax(0, 1fr));
-          width: 100%;
-        }
-
-        .planner-corner,
-        .planner-day-header,
-        .employee-cell,
-        .day-cell {
-          min-width: 0;
-        }
-
-        .planner-corner {
-          position: sticky;
-          left: 0;
-          z-index: 3;
-          background: #0f172a;
-          color: white;
-          padding: 10px 8px;
-          font-size: 11px;
-          font-weight: 700;
-          border-right: 1px solid #1e293b;
-        }
-
-        .planner-day-header {
-          background: #0f172a;
-          color: white;
-          padding: 10px 6px;
-          border-left: 1px solid #1e293b;
-          display: flex;
-          flex-direction: column;
-          gap: 2px;
-          align-items: center;
-          text-align: center;
-        }
-
-        .planner-day-name {
-          font-size: 10px;
-          text-transform: uppercase;
-          letter-spacing: 0.04em;
-          color: #cbd5e1;
-        }
-
-        .planner-day-date {
-          font-size: 16px;
-          font-weight: 800;
-        }
-
-        .cell-action-overlay {
-          position: fixed;
-          inset: 0;
-          z-index: 60;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 16px;
-          background: rgba(15, 23, 42, 0.45);
-        }
-
-        .cell-action-modal {
-          width: 100%;
-          max-width: 420px;
-          background: white;
-          border: 1px solid #e2e8f0;
-          border-radius: 18px;
-          box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
-          overflow: hidden;
-        }
-
-        .cell-action-header {
-          padding: 18px 18px 12px 18px;
-          border-bottom: 1px solid #e2e8f0;
-        }
-
-        .cell-action-title {
-          margin: 0;
-          font-size: 18px;
-          font-weight: 800;
-          color: #0f172a;
-        }
-
-        .cell-action-subtitle {
-          margin: 6px 0 0 0;
-          font-size: 13px;
-          color: #64748b;
-        }
-
-        .cell-action-body {
-          padding: 16px 18px;
+        .shift-master-list {
           display: flex;
           flex-direction: column;
           gap: 10px;
         }
 
-        .cell-action-option {
-          width: 100%;
+        .shift-master-card {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
           border: 1px solid #e2e8f0;
           border-radius: 14px;
+          padding: 12px;
           background: #ffffff;
-          padding: 14px;
+        }
+
+        .card-top {
           display: flex;
-          flex-direction: column;
-          gap: 4px;
-          text-align: left;
-          cursor: pointer;
-          transition:
-            transform 0.15s ease,
-            border-color 0.15s ease,
-            box-shadow 0.15s ease,
-            background 0.15s ease;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
         }
 
-        .cell-action-option:hover {
-          transform: translateY(-1px);
-          background: #f8fafc;
-          border-color: #cbd5e1;
-          box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
-        }
-
-        .cell-action-option-title {
-          font-size: 14px;
-          font-weight: 700;
+        .card-top strong {
+          font-size: 15px;
           color: #0f172a;
         }
 
-        .cell-action-option-text {
+        .shift-master-card p {
+          margin: 5px 0 0;
           font-size: 12px;
           color: #64748b;
-          line-height: 1.4;
         }
 
-        .cell-action-empty {
-          border: 1px dashed #cbd5e1;
-          border-radius: 14px;
-          padding: 14px;
-          font-size: 12px;
-          color: #64748b;
+        .badge,
+        .status {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: fit-content;
+          border-radius: 999px;
+          padding: 4px 8px;
+          font-size: 10px;
+          font-weight: 900;
+        }
+
+        .badge.general {
           background: #f8fafc;
+          color: #334155;
+          border: 1px solid #cbd5e1;
         }
 
-        .cell-action-footer {
-          padding: 12px 18px 18px 18px;
-          border-top: 1px solid #e2e8f0;
-          display: flex;
-          justify-content: flex-end;
+        .badge.restaurante {
+          background: #fff8e6;
+          color: #92400e;
+          border: 1px solid #fcd34d;
         }
 
-        @media (max-width: 1200px) {
-          .planner-card {
-            overflow-x: auto;
-          }
-
-          .planner-grid {
-            min-width: 900px;
-          }
+        .badge.pisos {
+          background: #ecfeff;
+          color: #155e75;
+          border: 1px solid #a5f3fc;
         }
 
-        @media (max-width: 900px) {
-          .filters-grid {
-            grid-template-columns: repeat(2, minmax(120px, 1fr));
-          }
+        .status.active {
+          background: #ecfdf5;
+          color: #047857;
+        }
 
-          .planner-grid {
-            min-width: 840px;
+        .status.inactive {
+          background: #f8fafc;
+          color: #64748b;
+        }
+
+        @media (max-width: 1000px) {
+          .layout-grid {
+            grid-template-columns: 1fr;
           }
         }
 
         @media (max-width: 640px) {
-          .filters-grid {
+          .form-grid,
+          .checks-grid {
             grid-template-columns: 1fr;
           }
-
-          .week-summary {
-            width: 100%;
-          }
-
-          .summary-item {
-            flex: 1;
-          }
-
-          .cell-action-modal {
-            max-width: 100%;
-          }
         }
       `}</style>
-    </>
+    </main>
   );
 }
 
-type WeeklyEmployeeRowProps = {
-  employee: Employee;
-  weekDays: Date[];
-  shifts: Shift[];
-  absences: Absence[];
-  canInteract: boolean;
-  onDayClick: (day: Date) => void;
-  onRangeSelect?: (start: Date, end: Date) => void;
-};
-
-function WeeklyEmployeeRow({
-  employee,
-  weekDays,
-  shifts,
-  absences,
-  canInteract,
-  onDayClick,
-  onRangeSelect,
-}: WeeklyEmployeeRowProps) {
-  const [isSelecting, setIsSelecting] = useState(false);
-  const [selectionStart, setSelectionStart] = useState<Date | null>(null);
-  const [selectionEnd, setSelectionEnd] = useState<Date | null>(null);
-
-  function isInRange(day: Date) {
-    if (!selectionStart || !selectionEnd) return false;
-
-    const start = selectionStart < selectionEnd ? selectionStart : selectionEnd;
-    const end = selectionStart > selectionEnd ? selectionStart : selectionEnd;
-
-    return day >= startOfDay(start) && day <= endOfDay(end);
-  }
-
-  return (
-    <>
-      <div className="employee-cell">
-        <div className="employee-info">
-          <div className="employee-avatar">
-            {employee.photoUrl ? (
-              <Image
-                src={employee.photoUrl}
-                alt={`${employee.firstName} ${employee.lastName}`}
-                fill
-                sizes="28px"
-              />
-            ) : (
-              <span>{getInitials(employee.firstName, employee.lastName)}</span>
-            )}
-          </div>
-
-          <div className="employee-text">
-            <strong title={`${employee.firstName} ${employee.lastName}`}>
-              {employee.firstName} {employee.lastName}
-            </strong>
-            {!canInteract ? (
-              <span className="employee-scope-note">Solo lectura</span>
-            ) : null}
-          </div>
-        </div>
-      </div>
-
-      {weekDays.map((day) => {
-        const dayShifts = shifts
-          .filter((shift) => isSameDay(new Date(shift.startAt), day))
-          .sort(
-            (a, b) =>
-              new Date(a.startAt).getTime() - new Date(b.startAt).getTime()
-          );
-
-        const dayAbsence = absences.find((absence) => {
-          if (absence.status !== "APPROVED") return false;
-          if (absence.unit !== "FULL_DAY") return false;
-
-          const startDate = new Date(absence.startDate);
-          const endDate = new Date(absence.endDate);
-
-          return day >= startOfDay(startDate) && day <= endOfDay(endDate);
-        });
-
-        const dayHourlyAbsence = absences.find((absence) => {
-          if (absence.status !== "APPROVED") return false;
-          if (absence.unit !== "HOURLY") return false;
-
-          return isSameDay(new Date(absence.startDate), day);
-        });
-
-        return (
-          <button
-            key={`${employee.id}-${day.toISOString()}`}
-            type="button"
-            className={`day-cell ${isInRange(day) ? "selecting" : ""} ${canInteract ? "" : "readonly"}`}
-            onMouseDown={() => {
-              if (!canInteract) return;
-              setIsSelecting(true);
-              setSelectionStart(day);
-              setSelectionEnd(day);
-            }}
-            onMouseEnter={() => {
-              if (isSelecting && canInteract) {
-                setSelectionEnd(day);
-              }
-            }}
-            onMouseUp={() => {
-              if (!canInteract || !selectionStart) return;
-
-              setIsSelecting(false);
-
-              if (selectionStart.getTime() === day.getTime()) {
-                onDayClick(day);
-              } else {
-                onRangeSelect?.(selectionStart, day);
-              }
-
-              setSelectionStart(null);
-              setSelectionEnd(null);
-            }}
-            title={canInteract ? "Crear turno o ausencia" : "Solo lectura"}
-          >
-            {dayAbsence ? (
-              <div
-                className="absence-card"
-                style={{ background: dayAbsence.absenceType.color || "#fee2e2" }}
-              >
-                <div className="absence-label">Ausencia</div>
-                <div className="absence-name">{dayAbsence.absenceType.name}</div>
-                {dayAbsence.notes ? (
-                  <div className="absence-notes" title={dayAbsence.notes}>
-                    {dayAbsence.notes}
-                  </div>
-                ) : null}
-              </div>
-            ) : (
-              <div className="day-content">
-                {dayHourlyAbsence ? (
-                  <div
-                    className="hourly-absence-badge"
-                    style={{
-                      background: dayHourlyAbsence.absenceType.color || "#fef3c7",
-                    }}
-                    title={`${dayHourlyAbsence.absenceType.name} · ${formatMinutes(dayHourlyAbsence.startMinutes)} - ${formatMinutes(dayHourlyAbsence.endMinutes)}`}
-                  >
-                    {dayHourlyAbsence.absenceType.name} ·{" "}
-                    {formatMinutes(dayHourlyAbsence.startMinutes)} -{" "}
-                    {formatMinutes(dayHourlyAbsence.endMinutes)}
-                  </div>
-                ) : null}
-
-                {dayShifts.length === 0 ? (
-                  <div className="empty-day">—</div>
-                ) : (
-                  <div className="shift-list">
-                    {dayShifts.map((shift) => (
-                      <div
-                        key={shift.id}
-                        className={`shift-card ${shift.status.toLowerCase()}`}
-                        style={{
-                          background:
-                            shift.shiftMaster?.backgroundColor ||
-                            getStatusBackground(shift.status),
-                        }}
-                      >
-                        <div className="shift-card-top">
-                          <div className="shift-time">
-                            {formatTime(shift.startAt)} - {formatTime(shift.endAt)}
-                          </div>
-
-                          {shift.shiftMaster ? (
-                            <span className={`shift-type ${shift.shiftMaster.type.toLowerCase()}`}>
-                              {formatType(shift.shiftMaster.type)}
-                            </span>
-                          ) : null}
-                        </div>
-
-                        <div
-                          className="shift-master-name"
-                          title={shift.shiftMaster?.name || "Turno manual"}
-                        >
-                          {shift.shiftMaster?.name || "Turno manual"}
-                        </div>
-
-                        <div
-                          className="shift-meta"
-                          title={`${shift.department.name}${shift.workArea?.name ? ` · ${shift.workArea.name}` : ""}`}
-                        >
-                          {shift.department.name}
-                          {shift.workArea?.name ? ` · ${shift.workArea.name}` : ""}
-                        </div>
-
-                        <div className="shift-workplace" title={shift.workplace.name}>
-                          {shift.workplace.name}
-                        </div>
-
-                        {shift.notes ? (
-                          <div className="shift-notes" title={shift.notes}>
-                            {shift.notes}
-                          </div>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </button>
-        );
-      })}
-
-      <style jsx>{`
-        .employee-cell {
-          position: sticky;
-          left: 0;
-          z-index: 2;
-          background: white;
-          border-top: 1px solid #e2e8f0;
-          border-right: 1px solid #e2e8f0;
-          padding: 8px 6px;
-        }
-
-        .employee-info {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          min-width: 0;
-        }
-
-        .employee-avatar {
-          width: 28px;
-          height: 28px;
-          min-width: 28px;
-          border-radius: 999px;
-          overflow: hidden;
-          position: relative;
-          background: #dbeafe;
-          color: #1e3a8a;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 9px;
-          font-weight: 800;
-        }
-
-        .employee-text {
-          min-width: 0;
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          gap: 2px;
-        }
-
-        .employee-text strong {
-          display: block;
-          font-size: 11px;
-          color: #0f172a;
-          line-height: 1.2;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-
-        .employee-scope-note {
-          font-size: 9px;
-          font-weight: 700;
-          color: #b45309;
-          text-transform: uppercase;
-          letter-spacing: 0.04em;
-        }
-
-        .day-cell {
-          min-height: 84px;
-          padding: 4px;
-          border-top: 1px solid #e2e8f0;
-          border-left: 1px solid #e2e8f0;
-          background: #ffffff;
-          text-align: left;
-          border-right: none;
-          border-bottom: none;
-          cursor: pointer;
-        }
-
-        .day-cell:hover {
-          background: #f8fafc;
-        }
-
-        .day-cell.readonly {
-          cursor: default;
-        }
-
-        .day-cell.readonly:hover {
-          background: #ffffff;
-        }
-
-        .day-cell.selecting {
-          background: #fef3c7;
-          outline: 2px solid #f59e0b;
-          outline-offset: -2px;
-        }
-
-        .empty-day {
-          height: 100%;
-          min-height: 74px;
-          border: 1px dashed #dbe4f0;
-          border-radius: 10px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: #94a3b8;
-          font-size: 14px;
-        }
-
-        .day-content {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-          min-height: 74px;
-        }
-
-        .absence-card {
-          min-height: 74px;
-          border-radius: 10px;
-          padding: 6px;
-          border: 1px solid #fecaca;
-          display: flex;
-          flex-direction: column;
-          justify-content: center;
-          overflow: hidden;
-        }
-
-        .absence-label {
-          font-size: 9px;
-          font-weight: 800;
-          text-transform: uppercase;
-          color: #991b1b;
-          line-height: 1.1;
-        }
-
-        .absence-name {
-          margin-top: 4px;
-          font-size: 10px;
-          font-weight: 800;
-          color: #7f1d1d;
-          line-height: 1.1;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-
-        .absence-notes {
-          margin-top: 4px;
-          font-size: 9px;
-          color: #7f1d1d;
-          line-height: 1.1;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-
-        .hourly-absence-badge {
-          border-radius: 8px;
-          padding: 4px 6px;
-          border: 1px solid #fcd34d;
-          font-size: 9px;
-          font-weight: 700;
-          color: #92400e;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-
-        .shift-list {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-
-        .shift-card {
-          border-radius: 10px;
-          padding: 5px 6px;
-          border: 1px solid #e2e8f0;
-          background: #f8fafc;
-          overflow: hidden;
-        }
-
-        .shift-card.borrador {
-          border-color: #fcd34d;
-        }
-
-        .shift-card.publicado {
-          border-color: #93c5fd;
-        }
-
-        .shift-card.cancelado {
-          border-color: #fecaca;
-          opacity: 0.8;
-        }
-
-        .shift-card-top {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          gap: 4px;
-        }
-
-        .shift-time {
-          font-size: 10px;
-          font-weight: 800;
-          color: #0f172a;
-          line-height: 1.1;
-        }
-
-        .shift-type {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          padding: 2px 5px;
-          border-radius: 999px;
-          font-size: 8px;
-          font-weight: 800;
-          border: 1px solid transparent;
-          white-space: nowrap;
-        }
-
-        .shift-type.general {
-          background: rgba(255, 255, 255, 0.7);
-          border-color: #cbd5e1;
-          color: #334155;
-        }
-
-        .shift-type.restaurante {
-          background: rgba(255, 248, 230, 0.85);
-          border-color: #fcd34d;
-          color: #92400e;
-        }
-
-        .shift-type.pisos {
-          background: rgba(236, 254, 255, 0.85);
-          border-color: #a5f3fc;
-          color: #155e75;
-        }
-
-        .shift-master-name,
-        .shift-meta,
-        .shift-workplace,
-        .shift-notes {
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-
-        .shift-master-name {
-          margin-top: 4px;
-          font-size: 10px;
-          font-weight: 700;
-          color: #0f172a;
-          line-height: 1.1;
-        }
-
-        .shift-meta {
-          margin-top: 3px;
-          font-size: 9px;
-          color: #334155;
-          line-height: 1.1;
-        }
-
-        .shift-workplace {
-          margin-top: 3px;
-          font-size: 9px;
-          color: #64748b;
-          line-height: 1.1;
-        }
-
-        .shift-notes {
-          margin-top: 3px;
-          font-size: 9px;
-          color: #475569;
-          line-height: 1.1;
-        }
-      `}</style>
-    </>
-  );
+function timeToMinutes(value: string) {
+  const [hours, minutes] = value.split(":").map(Number);
+  return hours * 60 + minutes;
 }
 
-function getStartOfWeek(date: Date) {
-  const result = new Date(date);
-  const day = result.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
+function formatMinutes(value: number) {
+  const hours = Math.floor(value / 60);
+  const minutes = value % 60;
 
-  result.setDate(result.getDate() + diff);
-  result.setHours(0, 0, 0, 0);
-
-  return result;
-}
-
-function addDays(date: Date, days: number) {
-  const result = new Date(date);
-  result.setDate(result.getDate() + days);
-  return result;
-}
-
-function startOfDay(date: Date) {
-  const result = new Date(date);
-  result.setHours(0, 0, 0, 0);
-  return result;
-}
-
-function endOfDay(date: Date) {
-  const result = new Date(date);
-  result.setHours(23, 59, 59, 999);
-  return result;
-}
-
-function isSameDay(a: Date, b: Date) {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
-}
-
-function toInputDate(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
-}
-
-function formatLongDate(date: Date) {
-  return new Intl.DateTimeFormat("es-ES", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  }).format(date);
-}
-
-function formatDayNumber(date: Date) {
-  return new Intl.DateTimeFormat("es-ES", {
-    day: "2-digit",
-    month: "2-digit",
-  }).format(date);
-}
-
-function formatTime(value: string) {
-  return new Intl.DateTimeFormat("es-ES", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
-
-function formatMinutes(value: number | null) {
-  if (value == null) return "";
-
-  const hours = Math.floor(value / 60)
-    .toString()
-    .padStart(2, "0");
-  const minutes = (value % 60).toString().padStart(2, "0");
-
-  return `${hours}:${minutes}`;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
 function formatType(type: ShiftMasterType) {
@@ -1902,22 +862,5 @@ function formatType(type: ShiftMasterType) {
       return "Pisos";
     default:
       return type;
-  }
-}
-
-function getInitials(firstName: string, lastName: string) {
-  return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
-}
-
-function getStatusBackground(status: ShiftStatus) {
-  switch (status) {
-    case "BORRADOR":
-      return "#fff8e6";
-    case "PUBLICADO":
-      return "#eff6ff";
-    case "CANCELADO":
-      return "#fff1f2";
-    default:
-      return "#f8fafc";
   }
 }

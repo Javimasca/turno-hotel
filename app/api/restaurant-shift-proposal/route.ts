@@ -19,15 +19,22 @@ export async function POST(req: Request) {
 
   const body = await req.json();
 
+  if (!body.workplaceId || !body.departmentId || !body.date) {
+    return NextResponse.json(
+      { error: "Faltan datos obligatorios" },
+      { status: 400 }
+    );
+  }
+
   try {
     const proposal =
       await restaurantShiftGeneratorService.generateDailyProposal({
         workplaceId: body.workplaceId,
         departmentId: body.departmentId,
         date: new Date(body.date),
-        breakfastCovers: body.breakfastCovers,
-        lunchCovers: body.lunchCovers,
-        dinnerCovers: body.dinnerCovers,
+        breakfastCovers: Number(body.breakfastCovers ?? 0),
+        lunchCovers: Number(body.lunchCovers ?? 0),
+        dinnerCovers: Number(body.dinnerCovers ?? 0),
       });
 
     return NextResponse.json(proposal);

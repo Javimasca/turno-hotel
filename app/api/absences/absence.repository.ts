@@ -1,5 +1,10 @@
 import { prisma } from "@/lib/prisma";
-import { AbsenceStatus } from "@prisma/client";
+import {
+  dateOnlyToLocalEndOfDay,
+  dateOnlyToLocalStartOfDay,
+  formatDateOnly,
+} from "@/lib/date-only";
+import { AbsenceStatus, AvailabilityBlockType } from "@prisma/client";
 
 export type CreateAbsenceInput = {
   employeeId: string;
@@ -143,6 +148,57 @@ export const absenceRepository = {
     return !!shift;
   },
 
+
+async findShiftsInRange(params: {
+  employeeId: string;
+  startDate: Date;
+  endDate: Date;
+}) {
+  return prisma.shift.findMany({
+    where: {
+      employeeId: params.employeeId,
+      startAt: {
+        lte: endOfDay(params.endDate),
+      },
+      endAt: {
+        gte: startOfDay(params.startDate),
+      },
+    },
+    select: {
+      id: true,
+      startAt: true,
+      endAt: true,
+    },
+    orderBy: {
+      startAt: "asc",
+    },
+  });
+},
+
+async existsDayOffConflict(params: {
+  employeeId: string;
+  startDate: Date;
+  endDate: Date;
+}) {
+  const dayOff = await prisma.employeeAvailabilityBlock.findFirst({
+    where: {
+      employeeId: params.employeeId,
+      date: {
+        gte: startOfDay(params.startDate),
+        lte: endOfDay(params.endDate),
+      },
+      type: {
+        in: [AvailabilityBlockType.DAY_OFF, AvailabilityBlockType.UNAVAILABLE],
+      },
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  return !!dayOff;
+},
+
   async findAbsenceTypeById(id: string) {
     return prisma.absenceType.findUnique({
       where: { id },
@@ -157,25 +213,9 @@ export const absenceRepository = {
 };
 
 function startOfDay(date: Date): Date {
-  return new Date(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate(),
-    0,
-    0,
-    0,
-    0
-  );
+  return dateOnlyToLocalStartOfDay(formatDateOnly(date));
 }
 
 function endOfDay(date: Date): Date {
-  return new Date(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate(),
-    23,
-    59,
-    59,
-    999
-  );
+  return dateOnlyToLocalEndOfDay(formatDateOnly(date));
 }

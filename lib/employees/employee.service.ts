@@ -71,6 +71,8 @@ type CreateEmployeeInput = {
   directManagerEmployeeId?: string | null;
   workplaceId?: string | null;
   departmentId?: string | null;
+  workAreaIds?: string[];
+  primaryWorkAreaId?: string | null;
   isActive?: boolean;
 };
 
@@ -84,6 +86,8 @@ type UpdateEmployeeInput = {
   directManagerEmployeeId?: string | null;
   workplaceId?: string | null;
   departmentId?: string | null;
+  workAreaIds?: string[];
+  primaryWorkAreaId?: string | null;
   isActive?: boolean;
 };
 
@@ -95,6 +99,20 @@ function normalizeString(value: string | null | undefined) {
   const normalized = value.trim();
 
   return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeStringArray(values: string[] | undefined) {
+  if (!Array.isArray(values)) {
+    return undefined;
+  }
+
+  return Array.from(
+    new Set(
+      values
+        .map((value) => normalizeString(value))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
 }
 
 export const employeeService = {
@@ -133,6 +151,11 @@ export const employeeService = {
     );
     const workplaceId = normalizeString(input.workplaceId ?? undefined);
     const departmentId = normalizeString(input.departmentId ?? undefined);
+    const workAreaIds = normalizeStringArray(input.workAreaIds);
+    const primaryWorkAreaId =
+      input.primaryWorkAreaId !== undefined
+        ? normalizeString(input.primaryWorkAreaId ?? undefined) ?? null
+        : null;
     const isActive = typeof input.isActive === "boolean" ? input.isActive : true;
 
     if (!code) {
@@ -199,6 +222,14 @@ export const employeeService = {
       throw new EmployeeDepartmentWorkplaceMismatchError();
     }
 
+    if (workAreaIds !== undefined && workAreaIds.length > 0 && !departmentId) {
+      throw new Error("Debemos seleccionar un departamento para asignar áreas.");
+    }
+
+    if (primaryWorkAreaId && (!workAreaIds || !workAreaIds.includes(primaryWorkAreaId))) {
+      throw new Error("El área principal debe estar incluida entre las áreas seleccionadas.");
+    }
+
     return employeeRepository.create({
       code,
       firstName,
@@ -209,6 +240,8 @@ export const employeeService = {
       directManagerEmployeeId: directManagerEmployeeId ?? null,
       workplaceId: workplaceId ?? null,
       departmentId: departmentId ?? null,
+      workAreaIds: workAreaIds ?? [],
+      primaryWorkAreaId,
       isActive,
     });
   },
@@ -265,6 +298,13 @@ export const employeeService = {
     const departmentId =
       input.departmentId !== undefined
         ? normalizeString(input.departmentId ?? undefined) ?? null
+        : undefined;
+
+    const workAreaIds = normalizeStringArray(input.workAreaIds);
+
+    const primaryWorkAreaId =
+      input.primaryWorkAreaId !== undefined
+        ? normalizeString(input.primaryWorkAreaId ?? undefined) ?? null
         : undefined;
 
     if (input.code !== undefined && !code) {
@@ -340,6 +380,11 @@ export const employeeService = {
         ? workplaceId
         : existingEmployee.employeeWorkplaces[0]?.workplaceId ?? null;
 
+    const effectiveDepartmentId =
+      departmentId !== undefined
+        ? departmentId
+        : existingEmployee.employeeDepartments[0]?.departmentId ?? null;
+
     if (department) {
       if (
         effectiveWorkplaceId &&
@@ -347,6 +392,18 @@ export const employeeService = {
       ) {
         throw new EmployeeDepartmentWorkplaceMismatchError();
       }
+    }
+
+    if (workAreaIds !== undefined && workAreaIds.length > 0 && !effectiveDepartmentId) {
+      throw new Error("Debemos seleccionar un departamento para asignar áreas.");
+    }
+
+    if (
+      primaryWorkAreaId !== undefined &&
+      primaryWorkAreaId &&
+      (!workAreaIds || !workAreaIds.includes(primaryWorkAreaId))
+    ) {
+      throw new Error("El área principal debe estar incluida entre las áreas seleccionadas.");
     }
 
     return employeeRepository.update(normalizedId, {
@@ -361,6 +418,8 @@ export const employeeService = {
         : {}),
       ...(workplaceId !== undefined ? { workplaceId } : {}),
       ...(departmentId !== undefined ? { departmentId } : {}),
+      ...(workAreaIds !== undefined ? { workAreaIds } : {}),
+      ...(primaryWorkAreaId !== undefined ? { primaryWorkAreaId } : {}),
       ...(typeof input.isActive === "boolean" ? { isActive: input.isActive } : {}),
     });
   },

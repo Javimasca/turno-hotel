@@ -100,15 +100,20 @@ export const shiftMasterService = {
     });
 
     await validateWorkplaceExists(input.workplaceId);
-    await validateDepartmentExists(input.departmentId);
-    await validateDepartmentBelongsToWorkplace(
-      input.departmentId,
-      input.workplaceId
-    );
+await validateDepartmentExists(input.departmentId);
+await validateDepartmentBelongsToWorkplace(
+  input.departmentId,
+  input.workplaceId
+);
 
-    const resolvedBackgroundColor = resolveShiftMasterBackgroundColor(
-      input.endMinute
-    );
+await validateUniqueShiftMasterCode({
+  departmentId: input.departmentId,
+  code: normalizedCode,
+});
+
+const resolvedBackgroundColor = resolveShiftMasterBackgroundColor(
+  input.endMinute
+);
 
     return shiftMasterRepository.create({
       code: normalizedCode,
@@ -395,5 +400,34 @@ async function validateDepartmentBelongsToWorkplace(
 
   if (department.workplaceId !== workplaceId) {
     throw new Error("El departamento no pertenece al centro indicado.");
+  }
+}
+
+async function validateUniqueShiftMasterCode(input: {
+  departmentId: string;
+  code: string;
+  excludeId?: string;
+}) {
+  const existingShiftMaster = await prisma.shiftMaster.findFirst({
+    where: {
+      departmentId: input.departmentId,
+      code: input.code,
+      ...(input.excludeId
+        ? {
+            NOT: {
+              id: input.excludeId,
+            },
+          }
+        : {}),
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (existingShiftMaster) {
+    throw new Error(
+      "Ya existe un turno maestro con ese código en este departamento."
+    );
   }
 }

@@ -6,6 +6,10 @@ import type {
 } from "@/lib/shifts/shift.types";
 import { canManageEmployee } from "@/lib/permissions/canManageEmployee";
 import { employeeRepository } from "@/lib/employees/employee.repository";
+import {
+  dateOnlyToUtcNoonDate,
+  formatLocalDateOnly,
+} from "@/lib/date-only";
 
 const MAX_SHIFT_DURATION_HOURS = 16;
 
@@ -870,8 +874,8 @@ async function validateApprovedFullDayAbsenceConflict(
   startAt: Date,
   endAt: Date
 ) {
-  const shiftStartDate = extractDate(startAt);
-  const shiftEndDate = extractDate(endAt);
+  const shiftStartDate = dateOnlyToUtcNoonDate(formatLocalDateOnly(startAt));
+  const shiftEndDate = dateOnlyToUtcNoonDate(formatLocalDateOnly(endAt));
 
   const conflict = await prisma.absence.findFirst({
     where: {

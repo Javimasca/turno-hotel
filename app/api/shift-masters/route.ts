@@ -53,5 +53,11 @@ function handleApiError(error: unknown) {
   const message =
     error instanceof Error ? error.message : "Ha ocurrido un error inesperado.";
 
-  return NextResponse.json({ error: message }, { status: 400 });
+  const status =
+    message.includes("Ya existe") ||
+    message.includes("Unique constraint failed")
+      ? 409
+      : 400;
+
+  return NextResponse.json({ error: message }, { status });
 }

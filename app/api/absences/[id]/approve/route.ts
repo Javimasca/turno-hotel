@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { absenceService } from "../../absence.service";
 import { getRequestContext } from "@/lib/auth/getRequestContext";
+import { serializeAbsence } from "@/lib/absences/absence-serializer";
 
 type RouteContext = {
   params: Promise<{
@@ -21,5 +22,5 @@ export async function PATCH(_: NextRequest, context: RouteContext) {
     );
   }
 
-  return NextResponse.json(result.data);
+  return NextResponse.json(serializeAbsence(result.data));
 }

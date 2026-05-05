@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { shiftService } from "@/lib/shifts/shift.service";
 import { getRequestContext } from "@/lib/auth/getRequestContext";
+import { serializeAbsences } from "@/lib/absences/absence-serializer";
 
 export async function GET(request: NextRequest) {
   try {
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       shifts,
-      absences,
+      absences: serializeAbsences(absences),
     });
   } catch (error) {
     return handleApiError(error);

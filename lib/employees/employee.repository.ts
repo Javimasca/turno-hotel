@@ -17,6 +17,8 @@ type CreateEmployeeInput = {
   directManagerEmployeeId?: string | null;
   workplaceId?: string | null;
   departmentId?: string | null;
+  workAreaIds?: string[];
+  primaryWorkAreaId?: string | null;
   isActive?: boolean;
 };
 
@@ -30,6 +32,8 @@ type UpdateEmployeeInput = {
   directManagerEmployeeId?: string | null;
   workplaceId?: string | null;
   departmentId?: string | null;
+  workAreaIds?: string[];
+  primaryWorkAreaId?: string | null;
   isActive?: boolean;
 };
 
@@ -131,6 +135,27 @@ export const employeeRepository = {
             },
           },
         },
+        employeeWorkAreas: {
+          include: {
+            workArea: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                departmentId: true,
+                isActive: true,
+              },
+            },
+          },
+          orderBy: [
+            { isPrimary: "desc" },
+            {
+              workArea: {
+                name: "asc",
+              },
+            },
+          ],
+        },
         employeeContracts: {
           include: {
             jobCategory: {
@@ -221,6 +246,27 @@ export const employeeRepository = {
               name: "asc",
             },
           },
+        },
+        employeeWorkAreas: {
+          include: {
+            workArea: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                departmentId: true,
+                isActive: true,
+              },
+            },
+          },
+          orderBy: [
+            { isPrimary: "desc" },
+            {
+              workArea: {
+                name: "asc",
+              },
+            },
+          ],
         },
         employeeContracts: {
           include: {
@@ -328,6 +374,18 @@ export const employeeRepository = {
               },
             }
           : {}),
+        ...(data.workAreaIds && data.workAreaIds.length > 0
+          ? {
+              employeeWorkAreas: {
+                create: data.workAreaIds.map((workAreaId) => ({
+                  workAreaId,
+                  isPrimary: data.primaryWorkAreaId === workAreaId,
+                  isActive: true,
+                  validFrom: new Date(),
+                })),
+              },
+            }
+          : {}),
       },
       include: {
         user: {
@@ -387,6 +445,27 @@ export const employeeRepository = {
               name: "asc",
             },
           },
+        },
+        employeeWorkAreas: {
+          include: {
+            workArea: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                departmentId: true,
+                isActive: true,
+              },
+            },
+          },
+          orderBy: [
+            { isPrimary: "desc" },
+            {
+              workArea: {
+                name: "asc",
+              },
+            },
+          ],
         },
       },
     });
@@ -444,6 +523,23 @@ export const employeeRepository = {
               },
             }
           : {}),
+        ...(data.workAreaIds !== undefined
+          ? {
+              employeeWorkAreas: {
+                deleteMany: {},
+                ...(data.workAreaIds.length > 0
+                  ? {
+                      create: data.workAreaIds.map((workAreaId) => ({
+                        workAreaId,
+                        isPrimary: data.primaryWorkAreaId === workAreaId,
+                        isActive: true,
+                        validFrom: new Date(),
+                      })),
+                    }
+                  : {}),
+              },
+            }
+          : {}),
       },
       include: {
         user: {
@@ -503,6 +599,27 @@ export const employeeRepository = {
               name: "asc",
             },
           },
+        },
+        employeeWorkAreas: {
+          include: {
+            workArea: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                departmentId: true,
+                isActive: true,
+              },
+            },
+          },
+          orderBy: [
+            { isPrimary: "desc" },
+            {
+              workArea: {
+                name: "asc",
+              },
+            },
+          ],
         },
       },
     });

@@ -6,6 +6,7 @@ import {
   canCreateAbsenceForEmployeeFrontend,
   type FrontendPermissionUser,
 } from "@/lib/permissions/canManageEmployeeFrontend";
+import { formatDateOnly, parseDateOnly, type DateOnly } from "@/lib/date-only";
 
 type EmployeeOption = {
   id: string;
@@ -27,17 +28,33 @@ type AbsencePayload = {
   employeeId: string;
   absenceTypeId: string;
   unit: "FULL_DAY" | "HOURLY";
-  startDate: string;
-  endDate: string;
+  startDate: DateOnly;
+  endDate: DateOnly;
   startMinutes?: number | null;
   endMinutes?: number | null;
-  status?: "PENDING" | "APPROVED";
+  status?: AbsenceStatus;
   notes?: string;
+};
+
+type AbsenceStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+
+type EditableAbsence = {
+  id: string;
+  employeeId: string;
+  absenceTypeId: string;
+  unit: "FULL_DAY" | "HOURLY";
+  startDate: string;
+  endDate: string;
+  startMinutes: number | null;
+  endMinutes: number | null;
+  status: AbsenceStatus;
+  notes: string | null;
 };
 
 type AbsenceFormProps = {
   onClose: () => void;
   onCreated: () => Promise<void> | void;
+  absenceId?: string;
   initialEmployeeId?: string;
   initialDate?: string;
   initialEndDate?: string;
@@ -45,9 +62,13 @@ type AbsenceFormProps = {
 
 type CurrentUser = FrontendPermissionUser;
 
+const MIN_HOURLY_ABSENCE_MINUTES = 60;
+const TIME_INPUT_PATTERN = "([01]?[0-9]|2[0-3]):[0-5][0-9]|24:00";
+
 export default function AbsenceForm({
   onClose,
   onCreated,
+  absenceId,
   initialEmployeeId = "",
   initialDate = "",
   initialEndDate = "",
@@ -60,7 +81,7 @@ export default function AbsenceForm({
   const [employeeId, setEmployeeId] = useState(initialEmployeeId);
   const [absenceTypeId, setAbsenceTypeId] = useState("");
   const [unit, setUnit] = useState<"FULL_DAY" | "HOURLY">("FULL_DAY");
-  const [status, setStatus] = useState<"PENDING" | "APPROVED">("PENDING");
+  const [status, setStatus] = useState<AbsenceStatus>("PENDING");
   const [startDate, setStartDate] = useState(initialDate);
   const [endDate, setEndDate] = useState(initialEndDate || initialDate);
   const [startTime, setStartTime] = useState("");
@@ -68,8 +89,11 @@ export default function AbsenceForm({
   const [notes, setNotes] = useState("");
 
   const [isLoadingCatalogs, setIsLoadingCatalogs] = useState(true);
+  const [isLoadingAbsence, setIsLoadingAbsence] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const isEditing = Boolean(absenceId);
 
   const isEmployeeRole = user?.role === "EMPLOYEE";
   const isInactiveUser = user?.isActive === false;
@@ -83,10 +107,72 @@ export default function AbsenceForm({
   }, []);
 
   useEffect(() => {
+    if (absenceId) return;
+
     setEmployeeId(initialEmployeeId);
     setStartDate(initialDate);
     setEndDate(initialEndDate || initialDate);
-  }, [initialEmployeeId, initialDate, initialEndDate]);
+  }, [absenceId, initialEmployeeId, initialDate, initialEndDate]);
+
+  useEffect(() => {
+    if (!absenceId) return;
+
+    let isCancelled = false;
+
+    async function loadAbsenceForEdit() {
+      try {
+        setIsLoadingAbsence(true);
+        setError(null);
+
+        const response = await fetch(`/api/absences/${absenceId}`, {
+          cache: "no-store",
+        });
+
+        const data = (await response.json().catch(() => null)) as
+          | EditableAbsence
+          | { error?: string }
+          | null;
+
+        if (!response.ok) {
+          throw new Error(
+            data && "error" in data && data.error
+              ? data.error
+              : "No se pudo cargar la ausencia."
+          );
+        }
+
+        if (!data || !("id" in data) || isCancelled) return;
+
+        setEmployeeId(data.employeeId);
+        setAbsenceTypeId(data.absenceTypeId);
+        setUnit(data.unit);
+        setStatus(data.status);
+        setStartDate(formatDateOnly(data.startDate));
+        setEndDate(formatDateOnly(data.endDate));
+        setStartTime(minutesToTime(data.startMinutes));
+        setEndTime(minutesToTime(data.endMinutes));
+        setNotes(data.notes ?? "");
+      } catch (err) {
+        if (!isCancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "No se pudo cargar la ausencia."
+          );
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingAbsence(false);
+        }
+      }
+    }
+
+    void loadAbsenceForEdit();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [absenceId]);
 
   const manageableEmployees = useMemo(() => {
   return employees.filter((employee) =>
@@ -109,7 +195,7 @@ export default function AbsenceForm({
   }, [user]);
 
   useEffect(() => {
-    if (user?.role === "EMPLOYEE") {
+    if (user?.role === "EMPLOYEE" || isLoadingCatalogs) {
       return;
     }
 
@@ -128,7 +214,7 @@ export default function AbsenceForm({
 
       return prev;
     });
-  }, [user, initialEmployeeId, allowedEmployeeIds]);
+  }, [user, initialEmployeeId, allowedEmployeeIds, isLoadingCatalogs]);
 
   const selectedAbsenceType = useMemo(
     () => absenceTypes.find((item) => item.id === absenceTypeId) ?? null,
@@ -206,9 +292,51 @@ export default function AbsenceForm({
     }
   }
 
-  function toMinutes(value: string) {
-    const [hours, minutes] = value.split(":").map(Number);
+  function normalizeTwentyFourHourTime(value: string) {
+    const trimmed = value.trim();
+    const expandedMatch = trimmed.match(/^(\d{1,2}):([0-5]\d)$/);
+    const compactMatch = trimmed.match(/^(\d{1,2})([0-5]\d)$/);
+    const match = expandedMatch ?? compactMatch;
+
+    if (!match) return null;
+
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+
+    if (hours < 0 || hours > 24) return null;
+    if (hours === 24 && minutes !== 0) return null;
+
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(
+      2,
+      "0"
+    )}`;
+  }
+
+  function sanitizeTimeInput(value: string) {
+    return value.replace(/[^\d:]/g, "").slice(0, 5);
+  }
+
+  function toMinutes(value: string, fieldName: string) {
+    const normalized = normalizeTwentyFourHourTime(value);
+
+    if (!normalized) {
+      throw new Error(`${fieldName} debe usar formato 24 horas HH:mm.`);
+    }
+
+    const [hours, minutes] = normalized.split(":").map(Number);
     return hours * 60 + minutes;
+  }
+
+  function minutesToTime(value: number | null) {
+    if (value == null) return "";
+
+    const hours = Math.floor(value / 60);
+    const minutes = value % 60;
+
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(
+      2,
+      "0"
+    )}`;
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -250,50 +378,68 @@ export default function AbsenceForm({
         throw new Error("Debes indicar la fecha de fin.");
       }
 
+      const normalizedStartDate = parseDateOnly(startDate, "Fecha inicio");
+      const normalizedEndDate = parseDateOnly(endDate, "Fecha fin");
+
+
       const payload: AbsencePayload = {
-        employeeId: resolvedEmployeeId,
-        absenceTypeId,
-        unit,
-        startDate,
-        endDate,
-        status: canApproveDirectly ? status : "PENDING",
-        notes: notes.trim() || undefined,
-      };
+  employeeId: resolvedEmployeeId,
+  absenceTypeId,
+  unit,
+  startDate: normalizedStartDate,
+  endDate: unit === "HOURLY" ? normalizedStartDate : normalizedEndDate,
+  notes: notes.trim() || undefined,
+};
 
-      if (unit === "HOURLY") {
-        if (!startTime || !endTime) {
-          throw new Error("Debes indicar hora de inicio y hora de fin.");
-        }
+if (canApproveDirectly) {
+  payload.status = status;
+} else if (!isEditing) {
+  payload.status = "PENDING";
+}
 
-        if (startDate !== endDate) {
-          throw new Error("Una ausencia por horas debe ser de un solo día.");
-        }
+if (unit === "HOURLY") {
+  if (!startTime || !endTime) {
+    throw new Error("Debes indicar hora de inicio y hora de fin.");
+  }
 
-        const startMinutes = toMinutes(startTime);
-        const endMinutes = toMinutes(endTime);
+  const startMinutes = toMinutes(startTime, "La hora de inicio");
+  const endMinutes = toMinutes(endTime, "La hora de fin");
 
-        if (endMinutes <= startMinutes) {
-          throw new Error("La hora de fin debe ser posterior a la hora de inicio.");
-        }
+  if (endMinutes <= startMinutes) {
+    throw new Error("La hora de fin debe ser posterior a la hora de inicio.");
+  }
 
-        payload.startMinutes = startMinutes;
-        payload.endMinutes = endMinutes;
-      }
+  if (endMinutes - startMinutes < MIN_HOURLY_ABSENCE_MINUTES) {
+    throw new Error("La ausencia por horas debe durar al menos una hora.");
+  }
 
-      const response = await fetch("/api/absences", {
-        method: "POST",
+  payload.startMinutes = startMinutes;
+  payload.endMinutes = endMinutes;
+}
+
+
+      const response = await fetch(
+        isEditing ? `/api/absences/${absenceId}` : "/api/absences",
+        {
+        method: isEditing ? "PATCH" : "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(payload),
-      });
+      }
+      );
 
       const responseData = (await response.json().catch(() => null)) as
         | { error?: string }
         | null;
 
       if (!response.ok) {
-        throw new Error(responseData?.error || "No se pudo crear la ausencia.");
+        throw new Error(
+          responseData?.error ||
+            (isEditing
+              ? "No se pudo actualizar la ausencia."
+              : "No se pudo crear la ausencia.")
+        );
       }
 
       await onCreated();
@@ -312,6 +458,7 @@ export default function AbsenceForm({
 
   const employeeFieldDisabled =
     isLoadingCatalogs ||
+    isLoadingAbsence ||
     isSubmitting ||
     isUserLoading ||
     isEmployeeRole ||
@@ -327,9 +474,13 @@ export default function AbsenceForm({
         <div className="header">
           <div>
             <p className="eyebrow">TURNOHOTEL</p>
-            <h2 className="title">Nueva ausencia</h2>
+            <h2 className="title">
+              {isEditing ? "Editar ausencia" : "Nueva ausencia"}
+            </h2>
             <p className="subtitle">
-              Registra una ausencia individual desde el cuadrante.
+              {isEditing
+                ? "Actualiza la ausencia seleccionada desde el cuadrante."
+                : "Registra una ausencia individual desde el cuadrante."}
             </p>
           </div>
 
@@ -359,6 +510,12 @@ export default function AbsenceForm({
         {!isUserLoading && user?.role === "EMPLOYEE" ? (
           <div className="infoBox">
             <p>Solo puedes registrar ausencias para tu propia ficha.</p>
+          </div>
+        ) : null}
+
+        {isLoadingAbsence ? (
+          <div className="infoBox">
+            <p>Cargando datos de la ausencia...</p>
           </div>
         ) : null}
 
@@ -403,7 +560,12 @@ export default function AbsenceForm({
                 id="absenceTypeId"
                 value={absenceTypeId}
                 onChange={(event) => setAbsenceTypeId(event.target.value)}
-                disabled={isLoadingCatalogs || isSubmitting || isInactiveUser}
+                disabled={
+                  isLoadingCatalogs ||
+                  isLoadingAbsence ||
+                  isSubmitting ||
+                  isInactiveUser
+                }
               >
                 <option value="">Selecciona un tipo</option>
                 {absenceTypes.map((absenceType) => (
@@ -422,7 +584,7 @@ export default function AbsenceForm({
                 onChange={(event) =>
                   setUnit(event.target.value as "FULL_DAY" | "HOURLY")
                 }
-                disabled={isSubmitting || isInactiveUser}
+                disabled={isLoadingAbsence || isSubmitting || isInactiveUser}
               >
                 <option value="FULL_DAY" disabled={fullDayDisabled}>
                   Día completo
@@ -440,12 +602,14 @@ export default function AbsenceForm({
                   id="status"
                   value={status}
                   onChange={(event) =>
-                    setStatus(event.target.value as "PENDING" | "APPROVED")
+                    setStatus(event.target.value as AbsenceStatus)
                   }
-                  disabled={isSubmitting || isInactiveUser}
+                  disabled={isLoadingAbsence || isSubmitting || isInactiveUser}
                 >
                   <option value="PENDING">Pendiente</option>
                   <option value="APPROVED">Aprobada</option>
+                  <option value="REJECTED">Rechazada</option>
+                  <option value="CANCELLED">Cancelada</option>
                 </select>
               ) : (
                 <input id="status" type="text" value="Pendiente" disabled />
@@ -465,7 +629,7 @@ export default function AbsenceForm({
                     setEndDate(value);
                   }
                 }}
-                disabled={isSubmitting || isInactiveUser}
+                disabled={isLoadingAbsence || isSubmitting || isInactiveUser}
               />
             </div>
 
@@ -476,7 +640,12 @@ export default function AbsenceForm({
                 type="date"
                 value={endDate}
                 onChange={(event) => setEndDate(event.target.value)}
-                disabled={isSubmitting || unit === "HOURLY" || isInactiveUser}
+                disabled={
+                  isLoadingAbsence ||
+                  isSubmitting ||
+                  unit === "HOURLY" ||
+                  isInactiveUser
+                }
               />
             </div>
 
@@ -486,10 +655,21 @@ export default function AbsenceForm({
                   <label htmlFor="startTime">Hora inicio</label>
                   <input
                     id="startTime"
-                    type="time"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={5}
+                    pattern={TIME_INPUT_PATTERN}
+                    placeholder="09:00"
+                    title="Formato 24 horas HH:mm"
                     value={startTime}
-                    onChange={(event) => setStartTime(event.target.value)}
-                    disabled={isSubmitting || isInactiveUser}
+                    onChange={(event) =>
+                      setStartTime(sanitizeTimeInput(event.target.value))
+                    }
+                    onBlur={() => {
+                      const normalized = normalizeTwentyFourHourTime(startTime);
+                      if (normalized) setStartTime(normalized);
+                    }}
+                    disabled={isLoadingAbsence || isSubmitting || isInactiveUser}
                   />
                 </div>
 
@@ -497,10 +677,21 @@ export default function AbsenceForm({
                   <label htmlFor="endTime">Hora fin</label>
                   <input
                     id="endTime"
-                    type="time"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={5}
+                    pattern={TIME_INPUT_PATTERN}
+                    placeholder="17:30"
+                    title="Formato 24 horas HH:mm"
                     value={endTime}
-                    onChange={(event) => setEndTime(event.target.value)}
-                    disabled={isSubmitting || isInactiveUser}
+                    onChange={(event) =>
+                      setEndTime(sanitizeTimeInput(event.target.value))
+                    }
+                    onBlur={() => {
+                      const normalized = normalizeTwentyFourHourTime(endTime);
+                      if (normalized) setEndTime(normalized);
+                    }}
+                    disabled={isLoadingAbsence || isSubmitting || isInactiveUser}
                   />
                 </div>
               </>
@@ -514,7 +705,7 @@ export default function AbsenceForm({
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
                 placeholder="Añade una observación si aplica"
-                disabled={isSubmitting || isInactiveUser}
+                disabled={isLoadingAbsence || isSubmitting || isInactiveUser}
               />
             </div>
           </div>
@@ -532,9 +723,19 @@ export default function AbsenceForm({
             <button
               type="submit"
               className="primaryButton"
-              disabled={isLoadingCatalogs || isSubmitting || isUserLoading || isInactiveUser}
+              disabled={
+                isLoadingCatalogs ||
+                isLoadingAbsence ||
+                isSubmitting ||
+                isUserLoading ||
+                isInactiveUser
+              }
             >
-              {isSubmitting ? "Guardando..." : "Crear ausencia"}
+              {isSubmitting
+                ? "Guardando..."
+                : isEditing
+                  ? "Guardar cambios"
+                  : "Crear ausencia"}
             </button>
           </div>
         </form>

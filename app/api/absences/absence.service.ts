@@ -11,6 +11,12 @@ import {
 } from "./absence.repository";
 import { employeeRepository } from "@/lib/employees/employee.repository";
 import { canManageEmployee } from "@/lib/permissions/canManageEmployee";
+import {
+  dateOnlyToUtcNoonDate,
+  formatDateOnly,
+  parseDateOnly,
+  type DateOnly,
+} from "@/lib/date-only";
 
 type UserRole = "ADMIN" | "MANAGER" | "EMPLOYEE";
 
@@ -38,12 +44,14 @@ type RequestContext = {
   isActive: boolean;
 };
 
+const MIN_HOURLY_ABSENCE_MINUTES = 60;
+
 type CreateAbsenceDto = {
   employeeId: string;
   absenceTypeId: string;
   unit: AbsenceUnit;
-  startDate: Date | string;
-  endDate: Date | string;
+  startDate: DateOnly;
+  endDate: DateOnly;
   startMinutes?: number | null;
   endMinutes?: number | null;
   status?: AbsenceStatus;
@@ -67,14 +75,16 @@ function normalizeText(value?: string | null): string | null {
   return trimmed.length ? trimmed : null;
 }
 
-function toDateOnly(value: Date | string): Date {
-  const date = value instanceof Date ? new Date(value) : new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    throw new Error("Fecha inválida.");
+function toDateOnly(value: Date | DateOnly): Date {
+  if (typeof value === "string") {
+    return dateOnlyToUtcNoonDate(parseDateOnly(value));
   }
 
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  if (Number.isNaN(value.getTime())) {
+    throw new Error("Fecha invalida.");
+  }
+
+  return dateOnlyToUtcNoonDate(formatDateOnly(value));
 }
 
 function isSameDay(a: Date, b: Date): boolean {
@@ -135,6 +145,10 @@ function validateStructure(data: {
     if (data.startMinutes >= data.endMinutes) {
       throw new Error("La hora de inicio debe ser menor que la hora de fin.");
     }
+
+    if (data.endMinutes - data.startMinutes < MIN_HOURLY_ABSENCE_MINUTES) {
+      throw new Error("Una ausencia por horas debe durar al menos una hora.");
+    }
   }
 }
 
@@ -143,7 +157,8 @@ function toCreateInput(
   ctx: RequestContext
 ): CreateAbsenceInput {
   const startDate = toDateOnly(dto.startDate);
-  const endDate = toDateOnly(dto.endDate);
+  const endDate =
+    dto.unit === AbsenceUnit.HOURLY ? startDate : toDateOnly(dto.endDate);
 
   const resolvedStatus =
     dto.status === AbsenceStatus.APPROVED && canCreateApprovedAbsence(ctx.role)
@@ -277,13 +292,25 @@ async function validateOverlap(params: {
   }
 }
 
-async function validateFullDayApprovalConflicts(absence: {
+async function validatePlanningConflicts(absence: {
   employeeId: string;
   unit: AbsenceUnit;
   startDate: Date;
   endDate: Date;
+  startMinutes?: number | null;
+  endMinutes?: number | null;
 }) {
-  if (absence.unit !== AbsenceUnit.FULL_DAY) return;
+  const hasDayOffConflict = await absenceRepository.existsDayOffConflict({
+    employeeId: absence.employeeId,
+    startDate: absence.startDate,
+    endDate: absence.endDate,
+  });
+
+  if (hasDayOffConflict) {
+    throw new Error(
+      "No se puede crear la ausencia porque el empleado tiene un día libre en ese rango."
+    );
+  }
 
   const hasShiftConflict = await absenceRepository.existsShiftConflict({
     employeeId: absence.employeeId,
@@ -291,10 +318,45 @@ async function validateFullDayApprovalConflicts(absence: {
     endDate: absence.endDate,
   });
 
-  if (hasShiftConflict) {
+  if (absence.unit === AbsenceUnit.FULL_DAY && hasShiftConflict) {
     throw new Error(
-      "No se puede aprobar la ausencia porque existen turnos en ese rango."
+      "No se puede crear una ausencia de día completo porque ya existe un turno en ese rango."
     );
+  }
+
+  if (absence.unit === AbsenceUnit.HOURLY) {
+    const shifts = await absenceRepository.findShiftsInRange({
+      employeeId: absence.employeeId,
+      startDate: absence.startDate,
+      endDate: absence.endDate,
+    });
+
+    if (shifts.length === 0) {
+      return;
+    }
+
+    const absenceStart = absence.startMinutes ?? null;
+    const absenceEnd = absence.endMinutes ?? null;
+
+    if (absenceStart == null || absenceEnd == null) {
+      return;
+    }
+
+    const isInsideAnyShift = shifts.some((shift) => {
+      const shiftStart =
+        shift.startAt.getHours() * 60 + shift.startAt.getMinutes();
+
+      const shiftEnd =
+        shift.endAt.getHours() * 60 + shift.endAt.getMinutes();
+
+      return absenceStart >= shiftStart && absenceEnd <= shiftEnd;
+    });
+
+    if (!isInsideAnyShift) {
+      throw new Error(
+        "La ausencia por horas queda fuera del horario del turno existente."
+      );
+    }
   }
 }
 
@@ -320,6 +382,8 @@ export const absenceService = {
 
     return { ok: true, data };
   },
+
+
 
   async getById(id: string): Promise<ServiceResult<Absence>> {
     const item = await absenceRepository.findById(id);
@@ -387,9 +451,7 @@ export const absenceService = {
         endDate: data.endDate,
       });
 
-      if (data.status === AbsenceStatus.APPROVED) {
-        await validateFullDayApprovalConflicts(data);
-      }
+      await validatePlanningConflicts(data);
 
       const created = await absenceRepository.create(data);
       return { ok: true, data: created };
@@ -451,8 +513,11 @@ export const absenceService = {
       const nextEmployeeId = data.employeeId ?? existing.employeeId;
       const nextAbsenceTypeId = data.absenceTypeId ?? existing.absenceTypeId;
       const nextUnit = data.unit ?? existing.unit;
-      const nextStartDate = data.startDate ?? existing.startDate;
-      const nextEndDate = data.endDate ?? existing.endDate;
+      const nextStartDate = data.startDate ?? toDateOnly(existing.startDate);
+      const nextEndDate =
+        nextUnit === AbsenceUnit.HOURLY
+          ? nextStartDate
+          : data.endDate ?? toDateOnly(existing.endDate);
       const nextStartMinutes =
         data.startMinutes !== undefined
           ? data.startMinutes
@@ -516,6 +581,10 @@ export const absenceService = {
         data.endMinutes = null;
       }
 
+      if (nextUnit === AbsenceUnit.HOURLY) {
+        data.endDate = nextStartDate;
+      }
+
       await validateOverlap({
         employeeId: nextEmployeeId,
         startDate: nextStartDate,
@@ -523,14 +592,14 @@ export const absenceService = {
         excludeId: id,
       });
 
-      if (nextStatus === AbsenceStatus.APPROVED) {
-        await validateFullDayApprovalConflicts({
-          employeeId: nextEmployeeId,
-          unit: nextUnit,
-          startDate: nextStartDate,
-          endDate: nextEndDate,
-        });
-      }
+      await validatePlanningConflicts({
+  employeeId: nextEmployeeId,
+  unit: nextUnit,
+  startDate: nextStartDate,
+  endDate: nextEndDate,
+  startMinutes: nextUnit === AbsenceUnit.HOURLY ? nextStartMinutes : null,
+  endMinutes: nextUnit === AbsenceUnit.HOURLY ? nextEndMinutes : null,
+});
 
       const updated = await absenceRepository.update(id, data);
       return { ok: true, data: updated };
@@ -584,7 +653,7 @@ export const absenceService = {
         };
       }
 
-      await validateFullDayApprovalConflicts(existing);
+      await validatePlanningConflicts(existing);
 
       const updated = await absenceRepository.update(id, {
         status: AbsenceStatus.APPROVED,

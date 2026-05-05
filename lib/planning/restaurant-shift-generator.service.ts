@@ -1,4 +1,5 @@
 import type { RestaurantServiceType } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
 import { restaurantDemandService } from "./restaurant-demand.service";
 
 type GenerateRestaurantShiftProposalInput = {
@@ -12,6 +13,8 @@ type GenerateRestaurantShiftProposalInput = {
 
 type ShiftProposal = {
   serviceType: RestaurantServiceType;
+  workAreaId: string;
+  shiftMasterId: string;
   startAt: Date;
   endAt: Date;
   employeesNeeded: number;
@@ -23,57 +26,138 @@ export const restaurantShiftGeneratorService = {
   ): Promise<ShiftProposal[]> {
     const demand = await restaurantDemandService.calculateDailyDemand({
       workplaceId: input.workplaceId,
+      departmentId: input.departmentId,
       date: input.date,
       breakfastCovers: input.breakfastCovers,
       lunchCovers: input.lunchCovers,
       dinnerCovers: input.dinnerCovers,
     });
 
-    return demand.map((line) => ({
-      serviceType: line.serviceType,
-      startAt: getServiceStartAt(input.date, line.serviceType),
-      endAt: getServiceEndAt(input.date, line.serviceType),
-      employeesNeeded: line.employeesNeeded,
-    }));
+    const shiftMasters = await prisma.shiftMaster.findMany({
+      where: {
+        workplaceId: input.workplaceId,
+        departmentId: input.departmentId,
+        type: "RESTAURANTE",
+        isActive: true,
+      },
+      orderBy: [{ startMinute: "asc" }, { name: "asc" }],
+    });
+
+    return demand
+      .filter(
+        (line) =>
+          line.status === "OK" &&
+          line.workAreaId !== null &&
+          line.employeesNeeded !== null
+      )
+      .map((line) => {
+        const shiftMaster = findShiftMasterForService(
+          shiftMasters,
+          line.serviceType
+        );
+
+        if (!shiftMaster) {
+          return null;
+        }
+
+        return {
+          serviceType: line.serviceType,
+          workAreaId: line.workAreaId as string,
+          shiftMasterId: shiftMaster.id,
+          startAt: buildDateFromMinute(input.date, shiftMaster.startMinute),
+          endAt: buildDateFromMinute(
+            input.date,
+            shiftMaster.endMinute,
+            shiftMaster.crossesMidnight
+          ),
+          employeesNeeded: line.employeesNeeded as number,
+        };
+      })
+      .filter((line): line is ShiftProposal => line !== null);
   },
 };
 
-function getServiceStartAt(
-  date: Date,
+function findShiftMasterForService(
+  shiftMasters: Array<{
+    id: string;
+    startMinute: number;
+    endMinute: number;
+    crossesMidnight: boolean;
+    coversBreakfast: boolean;
+    coversLunch: boolean;
+    coversDinner: boolean;
+  }>,
   serviceType: RestaurantServiceType
-): Date {
-  const result = new Date(date);
+) {
+  const candidates = shiftMasters.filter((item) =>
+    shiftMasterCoversService(item, serviceType)
+  );
 
-  if (serviceType === "BREAKFAST") {
-    result.setHours(7, 0, 0, 0);
-    return result;
-  }
+  const exclusive = candidates.find((item) =>
+    shiftMasterCoversOnlyService(item, serviceType)
+  );
 
-  if (serviceType === "LUNCH") {
-    result.setHours(12, 0, 0, 0);
-    return result;
-  }
-
-  result.setHours(19, 0, 0, 0);
-  return result;
+  return exclusive ?? candidates[0];
 }
 
-function getServiceEndAt(
-  date: Date,
+function shiftMasterCoversService(
+  shiftMaster: {
+    coversBreakfast: boolean;
+    coversLunch: boolean;
+    coversDinner: boolean;
+  },
   serviceType: RestaurantServiceType
-): Date {
-  const result = new Date(date);
+) {
+  if (serviceType === "BREAKFAST") return shiftMaster.coversBreakfast;
+  if (serviceType === "LUNCH") return shiftMaster.coversLunch;
+  return shiftMaster.coversDinner;
+}
 
+function shiftMasterCoversOnlyService(
+  shiftMaster: {
+    coversBreakfast: boolean;
+    coversLunch: boolean;
+    coversDinner: boolean;
+  },
+  serviceType: RestaurantServiceType
+) {
   if (serviceType === "BREAKFAST") {
-    result.setHours(11, 0, 0, 0);
-    return result;
+    return (
+      shiftMaster.coversBreakfast &&
+      !shiftMaster.coversLunch &&
+      !shiftMaster.coversDinner
+    );
   }
 
   if (serviceType === "LUNCH") {
-    result.setHours(16, 0, 0, 0);
-    return result;
+    return (
+      shiftMaster.coversLunch &&
+      !shiftMaster.coversBreakfast &&
+      !shiftMaster.coversDinner
+    );
   }
 
-  result.setHours(23, 0, 0, 0);
+  return (
+    shiftMaster.coversDinner &&
+    !shiftMaster.coversBreakfast &&
+    !shiftMaster.coversLunch
+  );
+}
+
+function buildDateFromMinute(
+  date: Date,
+  minuteOfDay: number,
+  crossesMidnight = false
+): Date {
+  const result = new Date(date);
+  const hours = Math.floor(minuteOfDay / 60);
+  const minutes = minuteOfDay % 60;
+
+  result.setHours(hours, minutes, 0, 0);
+
+  if (crossesMidnight) {
+    result.setDate(result.getDate() + 1);
+  }
+
   return result;
 }

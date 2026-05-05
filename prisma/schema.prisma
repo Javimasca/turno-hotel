@@ -69,6 +69,12 @@ enum RestaurantServiceType {
   DINNER
 }
 
+enum EmployeeWorkAreaLevel {
+  TRAINING
+  STANDARD
+  EXPERT
+}
+
 model Workplace {
   id          String   @id @default(cuid())
   code        String   @unique
@@ -78,11 +84,12 @@ model Workplace {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  departments             Department[]
-  employeeWorkplaces      EmployeeWorkplace[]
-  shifts                  Shift[]
-  shiftMasters            ShiftMaster[]
-  restaurantCoverageRules RestaurantCoverageRule[]
+  departments              Department[]
+  employeeWorkplaces       EmployeeWorkplace[]
+  shifts                   Shift[]
+  shiftMasters             ShiftMaster[]
+  restaurantCoverageRules  RestaurantCoverageRule[]
+  restaurantShiftProposals RestaurantShiftProposal[]
 
   @@index([name])
   @@map("workplaces")
@@ -105,6 +112,7 @@ model Department {
   employeeDepartments      EmployeeDepartment[]
   shifts                   Shift[]
   shiftMasters             ShiftMaster[]
+  restaurantShiftProposals RestaurantShiftProposal[]
 
   @@unique([workplaceId, code])
   @@unique([workplaceId, name])
@@ -124,16 +132,38 @@ model WorkArea {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  department     Department      @relation(fields: [departmentId], references: [id], onDelete: Cascade)
-  quadrantGroups QuadrantGroup[]
-  shifts         Shift[]
-  shiftMasters   ShiftMaster[]
+  department               Department                @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  quadrantGroups           QuadrantGroup[]
+  shifts                   Shift[]
+  shiftMasters             ShiftMaster[]
+  employeeWorkAreas        EmployeeWorkArea[]
+  positions                WorkAreaPosition[]
+  restaurantShiftProposals RestaurantShiftProposal[]
 
   @@unique([departmentId, code])
   @@unique([departmentId, name])
   @@index([departmentId, displayOrder])
   @@index([name])
   @@map("work_areas")
+}
+
+model WorkAreaPosition {
+  id           String   @id @default(cuid())
+  workAreaId   String
+  code         String
+  name         String
+  description  String?
+  displayOrder Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  workArea WorkArea @relation(fields: [workAreaId], references: [id], onDelete: Cascade)
+
+  @@unique([workAreaId, code])
+  @@unique([workAreaId, name])
+  @@index([workAreaId, displayOrder])
+  @@map("work_area_positions")
 }
 
 model QuadrantGroup {
@@ -251,6 +281,8 @@ model Employee {
   employeeContracts   EmployeeContract[]
   employeeWorkplaces  EmployeeWorkplace[]
   employeeDepartments EmployeeDepartment[]
+  employeeWorkAreas   EmployeeWorkArea[]
+  availabilityBlocks EmployeeAvailabilityBlock[]
   shifts              Shift[]
   absences            Absence[]
   user                User?                @relation("UserEmployee")
@@ -258,6 +290,30 @@ model Employee {
   @@index([lastName, firstName])
   @@index([directManagerEmployeeId])
   @@map("employees")
+}
+
+model EmployeeWorkArea {
+  id         String                @id @default(cuid())
+  employeeId String
+  workAreaId String
+  level      EmployeeWorkAreaLevel @default(STANDARD)
+  isPrimary  Boolean               @default(false)
+  canLead    Boolean               @default(false)
+  isActive   Boolean               @default(true)
+  validFrom  DateTime              @default(now())
+  validTo    DateTime?
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  workArea WorkArea @relation(fields: [workAreaId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, workAreaId, validFrom])
+  @@index([employeeId])
+  @@index([workAreaId])
+  @@index([employeeId, isActive, validTo])
+  @@index([workAreaId, isActive, validTo])
+  @@map("employee_work_areas")
 }
 
 model EmployeeContract {
@@ -342,27 +398,28 @@ model Shift {
 }
 
 model ShiftMaster {
-  id                      String          @id @default(cuid())
-  code                    String
-  name                    String
-  description             String?
-  workplaceId             String
-  departmentId            String
-  workAreaId              String?
-  jobCategoryId           String?
-  type                    ShiftMasterType @default(GENERAL)
-  startMinute             Int
-  endMinute               Int
-  crossesMidnight         Boolean         @default(false)
-  isPartial               Boolean         @default(false)
-  backgroundColor         String?
-  coversBreakfast         Boolean         @default(false)
-  coversLunch             Boolean         @default(false)
-  coversDinner            Boolean         @default(false)
-  countsForRoomAssignment Boolean         @default(false)
-  isActive                Boolean         @default(true)
-  createdAt               DateTime        @default(now())
-  updatedAt               DateTime        @updatedAt
+  id                       String                    @id @default(cuid())
+  code                     String
+  name                     String
+  description              String?
+  workplaceId              String
+  departmentId             String
+  workAreaId               String?
+  jobCategoryId            String?
+  type                     ShiftMasterType           @default(GENERAL)
+  startMinute              Int
+  endMinute                Int
+  crossesMidnight          Boolean                   @default(false)
+  isPartial                Boolean                   @default(false)
+  backgroundColor          String?
+  coversBreakfast          Boolean                   @default(false)
+  coversLunch              Boolean                   @default(false)
+  coversDinner             Boolean                   @default(false)
+  countsForRoomAssignment  Boolean                   @default(false)
+  isActive                 Boolean                   @default(true)
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  restaurantShiftProposals RestaurantShiftProposal[]
 
   workplace   Workplace    @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
   department  Department   @relation(fields: [departmentId], references: [id], onDelete: Restrict)
@@ -410,24 +467,19 @@ model AbsenceType {
 }
 
 model Absence {
-  id            String @id @default(cuid())
+  id            String        @id @default(cuid())
   employeeId    String
   absenceTypeId String
-
-  unit AbsenceUnit
-
-  startDate DateTime @db.Date
-  endDate   DateTime @db.Date
-
-  startMinutes Int?
-  endMinutes   Int?
-
-  status      AbsenceStatus @default(PENDING)
-  notes       String?
-  documentUrl String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  unit          AbsenceUnit
+  startDate     DateTime      @db.Date
+  endDate       DateTime      @db.Date
+  startMinutes  Int?
+  endMinutes    Int?
+  status        AbsenceStatus @default(PENDING)
+  notes         String?
+  documentUrl   String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
   employee    Employee    @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   absenceType AbsenceType @relation(fields: [absenceTypeId], references: [id], onDelete: Restrict)
@@ -443,26 +495,23 @@ model User {
   name         String?
   role         UserRole  @default(EMPLOYEE)
   isActive     Boolean   @default(true)
-
   employeeId   String?   @unique
   employee     Employee? @relation("UserEmployee", fields: [employeeId], references: [id])
-
   sessions     Session[]
-
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 }
 
 model Session {
-  id           String   @id @default(cuid())
-  tokenHash    String   @unique
-  userId       String
-  expiresAt    DateTime
-  lastSeenAt   DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id         String    @id @default(cuid())
+  tokenHash  String    @unique
+  userId     String
+  expiresAt  DateTime
+  lastSeenAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])
@@ -474,13 +523,67 @@ model RestaurantCoverageRule {
   serviceType            RestaurantServiceType
   ratioCoversPerEmployee Int
   validFrom              DateTime
-  validTo                DateTime
+  validTo                DateTime?
   isActive               Boolean               @default(true)
-
   createdAt              DateTime              @default(now())
   updatedAt              DateTime              @updatedAt
 
-  workplace              Workplace             @relation(fields: [workplaceId], references: [id], onDelete: Cascade)
+  workplace Workplace @relation(fields: [workplaceId], references: [id], onDelete: Cascade)
 
   @@index([workplaceId, serviceType, validFrom, validTo])
+}
+
+model RestaurantShiftProposal {
+  id            String                @id @default(cuid())
+  workplaceId   String
+  departmentId  String
+  workAreaId    String?
+  shiftMasterId String?
+  date          DateTime
+  service       RestaurantServiceType
+  requiredStaff Int
+  startAt       DateTime?
+  endAt         DateTime?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  workplace   Workplace    @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+  department  Department   @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  workArea    WorkArea?    @relation(fields: [workAreaId], references: [id], onDelete: Restrict)
+  shiftMaster ShiftMaster? @relation(fields: [shiftMasterId], references: [id], onDelete: Restrict)
+
+  @@index([workplaceId])
+  @@index([departmentId])
+  @@index([workAreaId])
+  @@index([shiftMasterId])
+  @@index([date])
+  @@index([workplaceId, departmentId, date])
+  @@map("restaurant_shift_proposals")
+}
+
+model EmployeeAvailabilityBlock {
+  id         String   @id @default(cuid())
+
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  date       DateTime
+
+  startAt    DateTime?
+  endAt      DateTime?
+
+  type       AvailabilityBlockType @default(UNAVAILABLE)
+
+  reason     String?
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([employeeId, date])
+  @@index([date])
+}
+
+enum AvailabilityBlockType {
+  DAY_OFF
+  UNAVAILABLE
 }

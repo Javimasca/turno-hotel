@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getRequestContext } from "@/lib/auth/getRequestContext";
-import { restaurantDemandService } from "@/lib/planning/restaurant-demand.service";
+import { restaurantShiftAssignmentService } from "@/lib/planning/restaurant-shift-assignment.service";
 
 export async function POST(req: Request) {
   const ctx = await getRequestContext();
@@ -20,19 +20,20 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    const demand = await restaurantDemandService.calculateDailyDemand({
-      workplaceId: body.workplaceId,
-      departmentId: body.departmentId,
-      date: new Date(body.date),
-      breakfastCovers: Number(body.breakfastCovers ?? 0),
-      lunchCovers: Number(body.lunchCovers ?? 0),
-      dinnerCovers: Number(body.dinnerCovers ?? 0),
-    });
+    const result =
+      await restaurantShiftAssignmentService.assignFromWeeklyProposal(
+        {
+          workplaceId: body.workplaceId,
+          departmentId: body.departmentId,
+          weekStart: body.weekStart,
+        },
+        ctx
+      );
 
-    return NextResponse.json(demand);
+    return NextResponse.json(result);
   } catch (error: any) {
     return NextResponse.json(
-      { error: error.message || "Error calculating restaurant demand" },
+      { error: error.message || "Error asignando turnos" },
       { status: 400 }
     );
   }

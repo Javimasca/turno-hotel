@@ -2,21 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { AbsenceStatus, AbsenceUnit } from "@prisma/client";
 import { absenceService } from "../absence.service";
 import { getRequestContext } from "@/lib/auth/getRequestContext";
+import { parseDateOnly, type DateOnly } from "@/lib/date-only";
+import { serializeAbsence } from "@/lib/absences/absence-serializer";
 
 type RouteContext = {
   params: Promise<{
     id: string;
   }>;
 };
-
-function parseDate(value: string | null): Date | undefined {
-  if (!value) return undefined;
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return undefined;
-
-  return date;
-}
 
 function parseOptionalNumber(value: unknown): number | undefined {
   if (value == null || value === "") return undefined;
@@ -52,7 +45,7 @@ export async function GET(_: NextRequest, context: RouteContext) {
     );
   }
 
-  return NextResponse.json(result.data);
+  return NextResponse.json(serializeAbsence(result.data));
 }
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
@@ -65,8 +58,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       employeeId?: string;
       absenceTypeId?: string;
       unit?: AbsenceUnit;
-      startDate?: Date;
-      endDate?: Date;
+      startDate?: DateOnly;
+      endDate?: DateOnly;
       startMinutes?: number | null;
       endMinutes?: number | null;
       status?: AbsenceStatus;
@@ -92,29 +85,25 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
 
     if (body.startDate !== undefined) {
-      const parsed = parseDate(body.startDate);
-
-      if (!parsed) {
+      try {
+        payload.startDate = parseDateOnly(body.startDate, "startDate");
+      } catch {
         return NextResponse.json(
-          { error: "startDate no es válida." },
+          { error: "startDate debe tener formato YYYY-MM-DD." },
           { status: 400 }
         );
       }
-
-      payload.startDate = parsed;
     }
 
     if (body.endDate !== undefined) {
-      const parsed = parseDate(body.endDate);
-
-      if (!parsed) {
+      try {
+        payload.endDate = parseDateOnly(body.endDate, "endDate");
+      } catch {
         return NextResponse.json(
-          { error: "endDate no es válida." },
+          { error: "endDate debe tener formato YYYY-MM-DD." },
           { status: 400 }
         );
       }
-
-      payload.endDate = parsed;
     }
 
     if (body.startMinutes !== undefined) {
@@ -174,7 +163,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       );
     }
 
-    return NextResponse.json(result.data);
+    return NextResponse.json(serializeAbsence(result.data));
   } catch {
     return NextResponse.json(
       { error: "Error al procesar la petición." },
@@ -196,5 +185,5 @@ export async function DELETE(_: NextRequest, context: RouteContext) {
     );
   }
 
-  return NextResponse.json(result.data);
+  return NextResponse.json(serializeAbsence(result.data));
 }

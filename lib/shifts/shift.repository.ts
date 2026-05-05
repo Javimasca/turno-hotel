@@ -1,5 +1,9 @@
 import type { ShiftStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import {
+  dateOnlyToUtcNoonDate,
+  formatLocalDateOnly,
+} from "@/lib/date-only";
 
 type FindByRangeInput = {
   startAt: Date;
@@ -73,14 +77,16 @@ export const shiftRepository = {
   async findAbsencesByRange(input: FindByRangeInput) {
     const employeeIds =
       input.employeeIds?.filter((id) => id.trim().length > 0) ?? [];
+    const startDate = dateOnlyToUtcNoonDate(formatLocalDateOnly(input.startAt));
+    const endDate = dateOnlyToUtcNoonDate(formatLocalDateOnly(input.endAt));
 
     return prisma.absence.findMany({
       where: {
         startDate: {
-          lte: input.endAt,
+          lte: endDate,
         },
         endDate: {
-          gte: input.startAt,
+          gte: startDate,
         },
         ...(employeeIds.length > 0
           ? {

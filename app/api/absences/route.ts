@@ -2,15 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { AbsenceStatus, AbsenceUnit } from "@prisma/client";
 import { absenceService } from "./absence.service";
 import { getRequestContext } from "@/lib/auth/getRequestContext";
-
-function parseDate(value: string | null): Date | undefined {
-  if (!value) return undefined;
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return undefined;
-
-  return date;
-}
+import { parseDateOnly, type DateOnly } from "@/lib/date-only";
+import {
+  serializeAbsence,
+  serializeAbsences,
+} from "@/lib/absences/absence-serializer";
 
 function parseOptionalNumber(value: unknown): number | undefined {
   if (value == null || value === "") return undefined;
@@ -46,7 +42,7 @@ export async function GET() {
     );
   }
 
-  return NextResponse.json(result.data);
+  return NextResponse.json(serializeAbsences(result.data));
 }
 
 export async function POST(request: NextRequest) {
@@ -75,19 +71,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const startDate = parseDate(body.startDate);
-    const endDate = parseDate(body.endDate);
+    let startDate: DateOnly;
+    let endDate: DateOnly;
 
-    if (!startDate) {
+    try {
+      startDate = parseDateOnly(body.startDate, "startDate");
+      endDate = parseDateOnly(body.endDate, "endDate");
+    } catch {
       return NextResponse.json(
-        { error: "startDate es obligatorio y debe ser válido." },
-        { status: 400 }
-      );
-    }
-
-    if (!endDate) {
-      return NextResponse.json(
-        { error: "endDate es obligatorio y debe ser válido." },
+        { error: "startDate y endDate deben tener formato YYYY-MM-DD." },
         { status: 400 }
       );
     }
@@ -122,7 +114,7 @@ export async function POST(request: NextRequest) {
         absenceTypeId: body.absenceTypeId,
         unit: body.unit,
         startDate,
-        endDate,
+        endDate: body.unit === "HOURLY" ? startDate : endDate,
         startMinutes,
         endMinutes,
         status: body.status,
@@ -139,7 +131,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json(result.data, { status: 201 });
+    return NextResponse.json(serializeAbsence(result.data), { status: 201 });
   } catch {
     return NextResponse.json(
       { error: "Error al procesar la petición." },

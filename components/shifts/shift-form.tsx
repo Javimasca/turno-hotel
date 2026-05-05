@@ -53,12 +53,15 @@ type Props = {
   onCreated: () => void | Promise<void>;
   initialEmployeeId?: string;
   initialDate?: string;
+  initialEndDate?: string;
+  shiftId?: string;
 };
 
 type FormState = {
   employeeId: string;
   shiftMasterId: string;
   date: string;
+  endDate: string;
   notes: string;
 };
 
@@ -66,12 +69,14 @@ type CurrentUser = FrontendPermissionUser;
 
 function buildInitialForm(
   initialEmployeeId?: string,
-  initialDate?: string
+  initialDate?: string,
+  initialEndDate?: string
 ): FormState {
   return {
     employeeId: initialEmployeeId ?? "",
     shiftMasterId: "",
     date: initialDate ?? "",
+    endDate: initialEndDate ?? initialDate ?? "",
     notes: "",
   };
 }
@@ -81,12 +86,14 @@ export default function ShiftForm({
   onCreated,
   initialEmployeeId,
   initialDate,
+  initialEndDate,
+  shiftId,
 }: Props) {
   const { user, isLoading: isUserLoading, error: userError } = useCurrentUser();
 
   const [form, setForm] = useState<FormState>(() =>
-    buildInitialForm(initialEmployeeId, initialDate)
-  );
+  buildInitialForm(initialEmployeeId, initialDate, initialEndDate)
+);
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [shiftMasters, setShiftMasters] = useState<ShiftMaster[]>([]);
@@ -119,14 +126,23 @@ export default function ShiftForm({
   );
 
   const formDisabled = isSubmitting || isUserLoading || !canManageShifts;
+  const isEditing = Boolean(shiftId);
 
   useEffect(() => {
-    setForm(buildInitialForm(initialEmployeeId, initialDate));
-  }, [initialEmployeeId, initialDate]);
+  if (shiftId) return;
+
+  setForm(buildInitialForm(initialEmployeeId, initialDate, initialEndDate));
+}, [initialEmployeeId, initialDate, initialEndDate, shiftId]);
 
   useEffect(() => {
     void loadInitialOptions();
   }, []);
+
+  useEffect(() => {
+  if (!shiftId) return;
+
+  void loadShiftToEdit(shiftId);
+}, [shiftId]);
 
   useEffect(() => {
     setForm((prev) => {
@@ -154,6 +170,36 @@ export default function ShiftForm({
       return prev;
     });
   }, [allowedEmployeeIds, initialEmployeeId]);
+
+async function loadShiftToEdit(id: string) {
+  try {
+    setError(null);
+
+    const response = await fetch(`/api/shifts/${id}`, {
+      cache: "no-store",
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "No se pudo cargar el turno.");
+    }
+
+    const startDate = toInputDate(new Date(data.startAt));
+
+    setForm({
+      employeeId: data.employeeId,
+      shiftMasterId: data.shiftMasterId ?? "",
+      date: startDate,
+      endDate: startDate,
+      notes: data.notes ?? "",
+    });
+  } catch (err) {
+    setError(
+      err instanceof Error ? err.message : "Error cargando el turno."
+    );
+  }
+}
 
   async function loadInitialOptions() {
     try {
@@ -227,6 +273,35 @@ export default function ShiftForm({
       setIsLoadingOptions(false);
     }
   }
+async function handleDelete() {
+  if (!shiftId) return;
+
+  const confirmed = window.confirm("¿Seguro que quieres eliminar este turno?");
+
+  if (!confirmed) return;
+
+  try {
+    setIsSubmitting(true);
+    setError(null);
+
+    const response = await fetch(`/api/shifts/${shiftId}`, {
+      method: "DELETE",
+    });
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      throw new Error(data?.error || "No se pudo eliminar el turno.");
+    }
+
+    await onCreated();
+    onClose();
+  } catch (err) {
+    setError(err instanceof Error ? err.message : "Error al eliminar el turno.");
+  } finally {
+    setIsSubmitting(false);
+  }
+}
 
   function updateField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({
@@ -267,30 +342,129 @@ export default function ShiftForm({
       }
 
       if (!form.date) {
-        throw new Error("Debes indicar una fecha.");
-      }
+  throw new Error("Debes indicar una fecha.");
+}
 
-      const response = await fetch("/api/shifts", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          employeeId: form.employeeId,
-          shiftMasterId: form.shiftMasterId,
-          date: buildApiDate(form.date),
-          notes: form.notes.trim() || null,
-        }),
-      });
+if (!form.endDate) {
+  throw new Error("Debes indicar una fecha fin.");
+}
 
-      const data = await response.json();
 
-      if (!response.ok) {
-        throw new Error(data.error || "No se pudo crear el turno.");
-      }
+if (isEditing && shiftId) {
+  const response = await fetch(`/api/shifts/${shiftId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      employeeId: form.employeeId,
+      shiftMasterId: form.shiftMasterId,
+      date: buildApiDate(form.date),
+      notes: form.notes.trim() || null,
+    }),
+  });
 
-      await onCreated();
-      onClose();
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "No se pudo actualizar el turno.");
+  }
+
+async function handleDelete() {
+  if (!shiftId) return;
+
+  const confirmed = window.confirm(
+    "¿Seguro que quieres eliminar este turno?"
+  );
+
+  if (!confirmed) return;
+
+  try {
+    setIsSubmitting(true);
+    setError(null);
+
+    const response = await fetch(`/api/shifts/${shiftId}`, {
+      method: "DELETE",
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "No se pudo eliminar el turno.");
+    }
+
+    await onCreated();
+    onClose();
+  } catch (err) {
+    setError(
+      err instanceof Error ? err.message : "Error al eliminar el turno."
+    );
+  } finally {
+    setIsSubmitting(false);
+  }
+}
+
+  await onCreated();
+  onClose();
+  return;
+}
+
+const selectedDates = getDatesBetween(form.date, form.endDate);
+
+// Obtener turnos existentes
+const existingResponse = await fetch(
+  `/api/shifts?startAt=${buildApiDate(form.date)}&endAt=${buildApiDate(
+    form.endDate
+  )}&employeeId=${form.employeeId}`
+);
+
+const existingData = await existingResponse.json();
+
+const existingDates = new Set(
+  (existingData?.shifts ?? []).map((shift: any) => {
+    const d = new Date(shift.startAt);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+      d.getDate()
+    ).padStart(2, "0")}`;
+  })
+);
+
+const datesToCreate = selectedDates.filter((date) => !existingDates.has(date));
+
+const results = await Promise.all(
+  datesToCreate.map((date) =>
+    fetch("/api/shifts", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        employeeId: form.employeeId,
+        shiftMasterId: form.shiftMasterId,
+        date: buildApiDate(date),
+        notes: form.notes.trim() || null,
+      }),
+    })
+  )
+);
+
+const failed = results.filter((response) => !response.ok);
+
+if (failed.length > 0) {
+  throw new Error(`No se pudieron crear ${failed.length} turno(s).`);
+}
+
+const skipped = selectedDates.length - datesToCreate.length;
+
+if (skipped > 0) {
+  alert(
+    `Se han creado ${datesToCreate.length} turno(s). ${skipped} ya existían y se han omitido.`
+  );
+}
+
+await onCreated();
+onClose();
+
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Ha ocurrido un error al guardar."
@@ -314,9 +488,11 @@ export default function ShiftForm({
           <div>
             <p className="eyebrow">HORION</p>
             <h2 id="shift-form-title" className="title">
-              Nuevo turno
-            </h2>
-            <p className="subtitle">Alta desde maestro de turno</p>
+  {isEditing ? "Editar turno" : "Nuevo turno"}
+</h2>
+<p className="subtitle">
+  {isEditing ? "Modifica los datos del turno" : "Alta desde maestro de turno"}
+</p>
           </div>
 
           <button
@@ -384,6 +560,20 @@ export default function ShiftForm({
                 disabled={formDisabled}
               />
             </div>
+
+{!isEditing ? (
+  <div className="field">
+    <label htmlFor="endDate">Fecha fin</label>
+    <input
+      id="endDate"
+      type="date"
+      value={form.endDate}
+      onChange={(event) => updateField("endDate", event.target.value)}
+      required
+      disabled={formDisabled}
+    />
+  </div>
+) : null}
 
             <div className="field">
               <label htmlFor="shiftMasterId">Maestro de turno</label>
@@ -496,23 +686,34 @@ export default function ShiftForm({
             {error ? <div className="error-box">{error}</div> : null}
 
             <div className="actions">
-              <button
-                type="button"
-                className="button secondary"
-                onClick={onClose}
-                disabled={isSubmitting}
-              >
-                Cancelar
-              </button>
+  <button
+    type="button"
+    className="button secondary"
+    onClick={onClose}
+    disabled={isSubmitting}
+  >
+    Cancelar
+  </button>
 
-              <button
-                type="submit"
-                className="button primary"
-                disabled={isSubmitting || isLoadingOptions || isUserLoading || !canManageShifts}
-              >
-                {isSubmitting ? "Guardando..." : "Crear turno"}
-              </button>
-            </div>
+  {isEditing ? (
+    <button
+      type="button"
+      className="button danger"
+      onClick={handleDelete}
+      disabled={isSubmitting}
+    >
+      Eliminar
+    </button>
+  ) : null}
+
+  <button
+    type="submit"
+    className="button primary"
+    disabled={isSubmitting || isLoadingOptions || isUserLoading || !canManageShifts}
+  >
+    {isSubmitting ? "Guardando..." : isEditing ? "Guardar cambios" : "Crear turno"}
+  </button>
+</div>
           </form>
         )}
       </div>
@@ -766,6 +967,15 @@ export default function ShiftForm({
           color: #ffffff;
         }
 
+        .button.danger {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.button.danger:hover {
+  background: #fecaca;
+}
+              
         .button.secondary {
           background: #0f172a;
           color: #ffffff;
@@ -846,6 +1056,36 @@ function formatMinute(value: number) {
   const minutes = value % 60;
 
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function getDatesBetween(startValue: string, endValue: string) {
+  const start = new Date(`${startValue}T00:00:00`);
+  const end = new Date(`${endValue}T00:00:00`);
+
+  const normalizedStart = start <= end ? start : end;
+  const normalizedEnd = start <= end ? end : start;
+
+  const result: string[] = [];
+  const current = new Date(normalizedStart);
+
+  while (current <= normalizedEnd) {
+    const year = current.getFullYear();
+    const month = String(current.getMonth() + 1).padStart(2, "0");
+    const day = String(current.getDate()).padStart(2, "0");
+
+    result.push(`${year}-${month}-${day}`);
+    current.setDate(current.getDate() + 1);
+  }
+
+  return result;
+}
+
+function toInputDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
 }
 
 function buildApiDate(value: string) {

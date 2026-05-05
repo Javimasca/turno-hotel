@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import ShiftForm from "@/components/shifts/shift-form";
 import AbsenceForm from "@/components/absences/absence-form";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -11,6 +11,11 @@ import {
   canManageShiftsForEmployeeFrontend,
   type FrontendPermissionUser,
 } from "@/lib/permissions/canManageEmployeeFrontend";
+import {
+  formatDateOnly,
+  isDateOnlyInRange,
+  type DateOnly,
+} from "@/lib/date-only";
 
 type Employee = {
   id: string;
@@ -21,7 +26,7 @@ type Employee = {
   directManagerEmployeeId: string | null;
   employeeContracts?: {
     id: string;
-    startDate: string;
+    startDate: DateOnly;
     createdAt: string;
     jobCategory: {
       id: string;
@@ -50,6 +55,15 @@ type WorkAreaOption = {
 
 type ShiftStatus = "BORRADOR" | "PUBLICADO" | "CANCELADO";
 type ShiftMasterType = "GENERAL" | "RESTAURANTE" | "PISOS";
+type RestaurantServiceType = "BREAKFAST" | "LUNCH" | "DINNER";
+type PlanningDayKey =
+  | "monday"
+  | "tuesday"
+  | "wednesday"
+  | "thursday"
+  | "friday"
+  | "saturday"
+  | "sunday";
 
 type Shift = {
   id: string;
@@ -93,7 +107,16 @@ type Shift = {
     name: string;
     type: ShiftMasterType;
     backgroundColor: string | null;
+    coversBreakfast: boolean;
+    coversLunch: boolean;
+    coversDinner: boolean;
   } | null;
+};
+
+type RestaurantPlanningWeekStorage = {
+  breakfastCovers?: Partial<Record<PlanningDayKey, number>>;
+  lunchCovers?: Partial<Record<PlanningDayKey, number>>;
+  dinnerCovers?: Partial<Record<PlanningDayKey, number>>;
 };
 
 type Absence = {
@@ -101,8 +124,8 @@ type Absence = {
   employeeId: string;
   absenceTypeId: string;
   unit: "FULL_DAY" | "HOURLY";
-  startDate: string;
-  endDate: string;
+  startDate: DateOnly;
+  endDate: DateOnly;
   startMinutes: number | null;
   endMinutes: number | null;
   status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
@@ -122,6 +145,17 @@ type Absence = {
   };
 };
 
+type EmployeeAvailabilityBlock = {
+  id: string;
+  employeeId: string;
+  date: DateOnly;
+  startAt: string | null;
+  endAt: string | null;
+  type: "DAY_OFF" | "UNAVAILABLE";
+  reason: string | null;
+};
+
+
 type ShiftsApiResponse = {
   shifts: Shift[];
   absences: Absence[];
@@ -131,6 +165,9 @@ type CellSelection = {
   employeeId: string;
   startDate: Date;
   endDate: Date;
+  shiftId?: string;
+  absenceId?: string;
+  availabilityBlockId?: string;
 };
 
 type CurrentUser = FrontendPermissionUser;
@@ -157,17 +194,23 @@ export default function TurnosPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [absences, setAbsences] = useState<Absence[]>([]);
+  const [availabilityBlocks, setAvailabilityBlocks] = useState<EmployeeAvailabilityBlock[]>([]);
 
   const [workplaces, setWorkplaces] = useState<WorkplaceOption[]>([]);
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
   const [workAreas, setWorkAreas] = useState<WorkAreaOption[]>([]);
+  const [plannedCoversByService, setPlannedCoversByService] = useState<
+    Record<RestaurantServiceType, Partial<Record<DateOnly, number>>>
+  >(createEmptyRestaurantServiceDayMap());
 
   const [isLoading, setIsLoading] = useState(true);
   const [isCatalogLoading, setIsCatalogLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [showForm, setShowForm] = useState(false);
+  const [editingShiftId, setEditingShiftId] = useState<string | null>(null);
   const [showAbsenceForm, setShowAbsenceForm] = useState(false);
+  const [editingAbsenceId, setEditingAbsenceId] = useState<string | null>(null);
   const [prefillEmployeeId, setPrefillEmployeeId] = useState<string>("");
   const [prefillDate, setPrefillDate] = useState<string>("");
   const [prefillEndDate, setPrefillEndDate] = useState<string>("");
@@ -211,6 +254,12 @@ const selectedCellCanCreateAbsences =
   useEffect(() => {
     void loadWorkAreas(selectedDepartmentId);
   }, [selectedDepartmentId]);
+
+  useEffect(() => {
+    setPlannedCoversByService(
+      loadPlannedCoversByServiceFromStorage(currentWeekStart)
+    );
+  }, [currentWeekStart]);
 
   useEffect(() => {
     void loadWeekData(currentWeekStart);
@@ -331,6 +380,11 @@ const selectedCellCanCreateAbsences =
         endAt: endAt.toISOString(),
       });
 
+     const availabilityParams = new URLSearchParams({
+       startDate: toInputDate(startAt),
+       endDate: toInputDate(endAt),
+     });
+
       if (selectedWorkplaceId !== "all") {
         shiftParams.set("workplaceId", selectedWorkplaceId);
       }
@@ -343,12 +397,17 @@ const selectedCellCanCreateAbsences =
         shiftParams.set("workAreaId", selectedWorkAreaId);
       }
 
-      const [employeesResponse, shiftsResponse] = await Promise.all([
-        fetch("/api/employees", { cache: "no-store" }),
-        fetch(`/api/shifts?${shiftParams.toString()}`, {
-          cache: "no-store",
-        }),
-      ]);
+      const [employeesResponse, shiftsResponse, availabilityResponse] = await Promise.all([
+  fetch("/api/employees", { cache: "no-store" }),
+  fetch(`/api/shifts?${shiftParams.toString()}`, {
+    cache: "no-store",
+  }),
+  fetch(`/api/employee-availability-blocks?${availabilityParams.toString()}`, {
+    cache: "no-store",
+  }),
+]);
+
+ 
 
       if (!employeesResponse.ok) {
         throw new Error("No se pudieron cargar los empleados.");
@@ -358,18 +417,34 @@ const selectedCellCanCreateAbsences =
         throw new Error("No se pudo cargar el cuadrante.");
       }
 
+      if (!availabilityResponse.ok) {
+        throw new Error("No se pudieron cargar los días libres.");
+      }
+
       const employeesData = (await employeesResponse.json()) as Employee[];
       const shiftsData = (await shiftsResponse.json()) as ShiftsApiResponse | {
   shifts?: Shift[];
   absences?: Absence[];
   error?: string;
 };
+      const availabilityData =
+  (await availabilityResponse.json()) as EmployeeAvailabilityBlock[];
 
-setShifts(Array.isArray(shiftsData?.shifts) ? shiftsData.shifts : []);
-setAbsences(Array.isArray(shiftsData?.absences) ? shiftsData.absences : []);
+const normalizedAvailabilityBlocks = Array.isArray(availabilityData)
+  ? availabilityData.map(normalizeAvailabilityBlock)
+  : [];
+const normalizedShifts = Array.isArray(shiftsData?.shifts) ? shiftsData.shifts : [];
+const normalizedAbsences = Array.isArray(shiftsData?.absences)
+  ? shiftsData.absences.map(normalizeAbsence)
+  : [];
+
+setAvailabilityBlocks(normalizedAvailabilityBlocks);
+setShifts(normalizedShifts);
+setAbsences(normalizedAbsences);
 
       setEmployees(
         employeesData
+          .map(normalizeEmployee)
           .filter((employee) => employee.isActive)
           .sort((a, b) => {
             const aCurrentContract = a.employeeContracts?.[0] ?? null;
@@ -386,25 +461,25 @@ setAbsences(Array.isArray(shiftsData?.absences) ? shiftsData.absences : []);
             const aOldestContractDate = [...(a.employeeContracts ?? [])]
               .sort(
                 (x, y) =>
-                  new Date(x.startDate).getTime() - new Date(y.startDate).getTime()
+                  x.startDate.localeCompare(y.startDate)
               )[0]?.startDate;
 
             const bOldestContractDate = [...(b.employeeContracts ?? [])]
               .sort(
                 (x, y) =>
-                  new Date(x.startDate).getTime() - new Date(y.startDate).getTime()
+                  x.startDate.localeCompare(y.startDate)
               )[0]?.startDate;
 
             const aSeniority = aOldestContractDate
-              ? new Date(aOldestContractDate).getTime()
+              ? aOldestContractDate
               : Number.MAX_SAFE_INTEGER;
 
             const bSeniority = bOldestContractDate
-              ? new Date(bOldestContractDate).getTime()
+              ? bOldestContractDate
               : Number.MAX_SAFE_INTEGER;
 
             if (aSeniority !== bSeniority) {
-              return aSeniority - bSeniority;
+              return String(aSeniority).localeCompare(String(bSeniority));
             }
 
             const lastNameCompare = a.lastName.localeCompare(b.lastName, "es");
@@ -416,8 +491,6 @@ setAbsences(Array.isArray(shiftsData?.absences) ? shiftsData.absences : []);
           })
       );
 
-      setShifts(Array.isArray(shiftsData?.shifts) ? shiftsData.shifts : []);
-setAbsences(Array.isArray(shiftsData?.absences) ? shiftsData.absences : []);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Ha ocurrido un error inesperado."
@@ -431,7 +504,7 @@ setAbsences(Array.isArray(shiftsData?.absences) ? shiftsData.absences : []);
   const departmentOptions = useMemo(() => departments, [departments]);
   const workAreaOptions = useMemo(() => workAreas, [workAreas]);
 
-   const filteredShifts = useMemo(() => {
+  const filteredShifts = useMemo(() => {
     const safeShifts = Array.isArray(shifts) ? shifts : [];
 
     if (selectedStatus === "all") {
@@ -440,6 +513,38 @@ setAbsences(Array.isArray(shiftsData?.absences) ? shiftsData.absences : []);
 
     return safeShifts.filter((shift) => shift.status === selectedStatus);
   }, [shifts, selectedStatus]);
+
+  const restaurantShifts = useMemo(
+    () => filteredShifts.filter((shift) => shift.shiftMaster?.type === "RESTAURANTE"),
+    [filteredShifts]
+  );
+
+  const restaurantCoverageByService = useMemo(
+    () => buildRestaurantCoverageByService(restaurantShifts),
+    [restaurantShifts]
+  );
+
+  const restaurantServicesByDay = useMemo(
+    () => plannedCoversByService,
+    [plannedCoversByService]
+  );
+
+  const restaurantRatioByService = useMemo(
+    () =>
+      buildRestaurantRatioByService({
+        coversByService: restaurantServicesByDay,
+        peopleByService: restaurantCoverageByService,
+      }),
+    [restaurantServicesByDay, restaurantCoverageByService]
+  );
+
+  const hasPlannedRestaurantCovers = useMemo(() => {
+    return (["BREAKFAST", "LUNCH", "DINNER"] as const).some((serviceType) =>
+      Object.values(restaurantServicesByDay[serviceType] ?? {}).some(
+        (covers) => Number(covers ?? 0) > 0
+      )
+    );
+  }, [restaurantServicesByDay]);
 
   const filteredEmployees = useMemo(() => {
     const normalizedSearch = employeeSearch.trim().toLocaleLowerCase("es");
@@ -504,27 +609,33 @@ setAbsences(Array.isArray(shiftsData?.absences) ? shiftsData.absences : []);
     setEmployeeSearch("");
   }
 
-  function handleOpenShiftForm(employeeId?: string, date?: Date) {
-    if (!canManageShifts) return;
+  function handleOpenShiftForm(
+  employeeId?: string,
+  date?: Date,
+  shiftId?: string
+) {
+  if (!canManageShifts) return;
 
-    if (employeeId) {
-      const employee = employees.find((item) => item.id === employeeId);
-      if (!employee || !canManageShiftsForEmployeeFrontend(user, employee)) {
-        return;
-      }
+  if (employeeId) {
+    const employee = employees.find((item) => item.id === employeeId);
+    if (!employee || !canManageShiftsForEmployeeFrontend(user, employee)) {
+      return;
     }
-
-    setPrefillEmployeeId(employeeId ?? "");
-    setPrefillDate(date ? toInputDate(date) : "");
-    setShowForm(true);
   }
+
+  setPrefillEmployeeId(employeeId ?? "");
+  setPrefillDate(date ? toInputDate(date) : "");
+  setEditingShiftId(shiftId ?? null);
+  setShowForm(true);
+}
 
   function handleCloseShiftForm() {
-    setShowForm(false);
-    setPrefillEmployeeId("");
-    setPrefillDate("");
-    setPrefillEndDate("");
-  }
+  setShowForm(false);
+  setEditingShiftId(null);
+  setPrefillEmployeeId("");
+  setPrefillDate("");
+  setPrefillEndDate("");
+}
 
   function handleOpenAbsenceForm(employeeId?: string, date?: Date) {
     if (!canCreateAbsences) return;
@@ -536,29 +647,45 @@ setAbsences(Array.isArray(shiftsData?.absences) ? shiftsData.absences : []);
       }
     }
 
-    setPrefillEmployeeId(employeeId ?? "");
-    setPrefillDate(date ? toInputDate(date) : "");
-    setShowAbsenceForm(true);
+  setPrefillEmployeeId(employeeId ?? "");
+  setPrefillDate(date ? toInputDate(date) : "");
+  setPrefillEndDate(date ? toInputDate(date) : "");
+  setEditingAbsenceId(null);
+  setShowAbsenceForm(true);
   }
 
   function handleCloseAbsenceForm() {
     setShowAbsenceForm(false);
+    setEditingAbsenceId(null);
     setPrefillEmployeeId("");
     setPrefillDate("");
     setPrefillEndDate("");
   }
 
-  function handleCellClick(employee: Employee, date: Date) {
-    if (!canInteractWithEmployeeRowFrontend(user, employee)) return;
-
-    setSelectedCell({
-      employeeId: employee.id,
-      startDate: date,
-      endDate: date,
-    });
-
-    setShowCellActionModal(true);
+  function handleCellClick(
+  employee: Employee,
+  date: Date,
+  cellContent?: {
+    shiftId?: string;
+    absenceId?: string;
+    availabilityBlockId?: string;
   }
+) {
+  if (!canInteractWithEmployeeRowFrontend(user, employee)) return;
+
+
+
+  setSelectedCell({
+    employeeId: employee.id,
+    startDate: date,
+    endDate: date,
+    shiftId: cellContent?.shiftId,
+    absenceId: cellContent?.absenceId,
+    availabilityBlockId: cellContent?.availabilityBlockId,
+  });
+
+  setShowCellActionModal(true);
+}
 
     function handleRangeSelect(employee: Employee, start: Date, end: Date) {
     if (!canInteractWithEmployeeRowFrontend(user, employee)) return;
@@ -581,12 +708,17 @@ setAbsences(Array.isArray(shiftsData?.absences) ? shiftsData.absences : []);
   }
 
   function handleCreateShiftFromCell() {
-    if (!selectedCell || !selectedCellEmployee || !selectedCellCanManageShifts) return;
+  if (!selectedCell || !selectedCellEmployee || !selectedCellCanManageShifts) return;
 
-    setShowCellActionModal(false);
-    handleOpenShiftForm(selectedCell.employeeId, selectedCell.startDate);
-    setSelectedCell(null);
-  }
+  setShowCellActionModal(false);
+
+  setPrefillEmployeeId(selectedCell.employeeId);
+  setPrefillDate(toInputDate(selectedCell.startDate));
+  setPrefillEndDate(toInputDate(selectedCell.endDate));
+  setShowForm(true);
+
+  setSelectedCell(null);
+}
 
   function handleCreateAbsenceFromCell() {
     if (
@@ -601,10 +733,191 @@ setAbsences(Array.isArray(shiftsData?.absences) ? shiftsData.absences : []);
     setPrefillEmployeeId(selectedCell.employeeId);
     setPrefillDate(toInputDate(selectedCell.startDate));
     setPrefillEndDate(toInputDate(selectedCell.endDate));
+    setEditingAbsenceId(null);
     setShowAbsenceForm(true);
     setSelectedCell(null);
   }
 
+async function handleDeleteSelectedRangeRecords() {
+  if (!selectedCell || !selectedCellEmployee || !selectedCellCanManageShifts) {
+    return;
+  }
+
+  const rangeStart = startOfDay(selectedCell.startDate);
+  const rangeEnd = endOfDay(selectedCell.endDate);
+  const rangeStartDate = toInputDate(selectedCell.startDate);
+  const rangeEndDate = toInputDate(selectedCell.endDate);
+
+  const shiftsToDelete = shifts.filter((shift) => {
+    if (shift.employeeId !== selectedCell.employeeId) return false;
+
+    const shiftDate = new Date(shift.startAt);
+    return shiftDate >= rangeStart && shiftDate <= rangeEnd;
+  });
+
+  const absencesToDelete = absences.filter((absence) => {
+    if (absence.employeeId !== selectedCell.employeeId) return false;
+
+    return absence.startDate <= rangeEndDate && absence.endDate >= rangeStartDate;
+  });
+
+  const availabilityBlocksToDelete = availabilityBlocks.filter((block) => {
+    if (block.employeeId !== selectedCell.employeeId) return false;
+
+    return isDateOnlyInRange(block.date, rangeStartDate, rangeEndDate);
+  });
+
+  const total =
+    shiftsToDelete.length +
+    absencesToDelete.length +
+    availabilityBlocksToDelete.length;
+
+  if (total === 0) {
+    alert("No hay registros para eliminar en esta selección.");
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `¿Seguro que quieres eliminar ${total} registro(s) de esta selección?`
+  );
+
+  if (!confirmed) return;
+
+  const requests = [
+    ...shiftsToDelete.map((shift) =>
+      fetch(`/api/shifts/${shift.id}`, { method: "DELETE" })
+    ),
+    ...absencesToDelete.map((absence) =>
+      fetch(`/api/absences/${absence.id}`, { method: "DELETE" })
+    ),
+    ...availabilityBlocksToDelete.map((block) =>
+      fetch(`/api/employee-availability-blocks/${block.id}`, {
+        method: "DELETE",
+      })
+    ),
+  ];
+
+  const results = await Promise.all(requests);
+  const failed = results.filter((response) => !response.ok);
+
+  if (failed.length > 0) {
+    alert(`No se pudieron eliminar ${failed.length} registro(s).`);
+    return;
+  }
+
+  setShowCellActionModal(false);
+  setSelectedCell(null);
+
+  await loadWeekData(currentWeekStart);
+}
+
+async function handleDeleteSelectedCellRecord() {
+  if (!selectedCell || !selectedCellEmployee || !selectedCellCanManageShifts) {
+    return;
+  }
+
+  const confirmed = window.confirm(
+    "¿Seguro que quieres eliminar el registro de esta celda?"
+  );
+
+  if (!confirmed) return;
+
+  const endpoint = selectedCell.availabilityBlockId
+    ? `/api/employee-availability-blocks/${selectedCell.availabilityBlockId}`
+    : selectedCell.absenceId
+      ? `/api/absences/${selectedCell.absenceId}`
+      : selectedCell.shiftId
+        ? `/api/shifts/${selectedCell.shiftId}`
+        : null;
+
+  if (!endpoint) return;
+
+  const response = await fetch(endpoint, {
+    method: "DELETE",
+  });
+
+  if (!response.ok) {
+    alert("No se pudo eliminar el registro.");
+    return;
+  }
+
+  setShowCellActionModal(false);
+  setSelectedCell(null);
+
+  await loadWeekData(currentWeekStart);
+}
+
+function handleEditSelectedCell() {
+  if (!selectedCell || !selectedCellEmployee) return;
+
+  // EDITAR TURNO
+  if (selectedCell.shiftId && selectedCellCanManageShifts) {
+  handleOpenShiftForm(
+    selectedCell.employeeId,
+    selectedCell.startDate,
+    selectedCell.shiftId
+  );
+    setShowCellActionModal(false);
+    setSelectedCell(null);
+    return;
+  }
+
+  // EDITAR AUSENCIA
+  if (selectedCell.absenceId && selectedCellCanCreateAbsences) {
+    setPrefillEmployeeId(selectedCell.employeeId);
+    setPrefillDate(toInputDate(selectedCell.startDate));
+    setPrefillEndDate(toInputDate(selectedCell.endDate));
+    setEditingAbsenceId(selectedCell.absenceId);
+    setShowAbsenceForm(true);
+    setShowCellActionModal(false);
+    setSelectedCell(null);
+    return;
+  }
+
+  // EDITAR DÍA LIBRE (de momento lo tratamos como recrear)
+  if (selectedCell.availabilityBlockId && selectedCellCanManageShifts) {
+    alert("Edición de día libre próximamente");
+    return;
+  }
+}
+
+async function handleCreateDayOffFromCell() {
+  if (!selectedCell || !selectedCellEmployee || !selectedCellCanManageShifts) {
+    return;
+  }
+
+  const days = getDatesBetween(selectedCell.startDate, selectedCell.endDate);
+
+  const results = await Promise.all(
+    days.map((day) =>
+      fetch("/api/employee-availability-blocks", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          employeeId: selectedCell.employeeId,
+          date: toInputDate(day),
+          type: "DAY_OFF",
+          reason: "Día libre",
+        }),
+      })
+    )
+  );
+
+  const failed = results.filter((res) => !res.ok);
+
+  if (failed.length > 0) {
+    alert(`No se pudieron crear ${failed.length} días libres`);
+    return;
+  }
+
+  setShowCellActionModal(false);
+  setSelectedCell(null);
+
+  await loadWeekData(currentWeekStart);
+}
+ 
   async function handleCreated() {
     await loadWeekData(currentWeekStart);
   }
@@ -829,20 +1142,82 @@ setAbsences(Array.isArray(shiftsData?.absences) ? shiftsData.absences : []);
 
                 return (
                   <WeeklyEmployeeRow
-                    key={employee.id}
-                    employee={employee}
-                    weekDays={weekDays}
-                    shifts={filteredShifts.filter((shift) => shift.employeeId === employee.id)}
-                    absences={absences.filter((absence) => absence.employeeId === employee.id)}
-                    canInteract={canInteract}
-                    onDayClick={(day) => handleCellClick(employee, day)}
-                    onRangeSelect={(start, end) => handleRangeSelect(employee, start, end)}
-                  />
+  key={employee.id}
+  employee={employee}
+  weekDays={weekDays}
+  shifts={filteredShifts.filter((shift) => shift.employeeId === employee.id)}
+  absences={absences.filter((absence) => absence.employeeId === employee.id)}
+  availabilityBlocks={availabilityBlocks.filter(
+    (block) => block.employeeId === employee.id
+  )}
+  selectedCell={selectedCell}
+  canInteract={canInteract}
+  onDayClick={(day, cellContent) =>
+    handleCellClick(employee, day, cellContent)
+  }
+  onRangeSelect={(start, end) => handleRangeSelect(employee, start, end)}
+/>
+
                 );
               })}
             </div>
           </div>
         )}
+
+        {!isLoading &&
+        (restaurantShifts.length > 0 || hasPlannedRestaurantCovers) ? (
+          <div className="restaurant-summary-card">
+            <div className="restaurant-summary-header">
+              <h2 className="filters-title">Resumen restaurante</h2>
+              <p className="filters-subtitle">
+                Personas asignadas y ratio activo por servicio en la semana visible.
+              </p>
+            </div>
+
+            <div className="restaurant-summary-grid">
+              <div className="restaurant-summary-corner">Servicio</div>
+              {weekDays.map((day, index) => (
+                <div key={`restaurant-head-${day.toISOString()}`} className="restaurant-summary-day">
+                  <span>{DAY_NAMES[index]}</span>
+                  <strong>{formatDayNumber(day)}</strong>
+                </div>
+              ))}
+
+              {(["BREAKFAST", "LUNCH", "DINNER"] as const).map((serviceType) => (
+                <Fragment key={`service-row-${serviceType}`}>
+                  <div className="restaurant-summary-service">
+                    {formatRestaurantService(serviceType)}
+                  </div>
+                  {weekDays.map((day) => {
+                    const dayKey = toInputDate(day);
+                    const people = restaurantCoverageByService[serviceType][dayKey] ?? 0;
+                    const covers = restaurantServicesByDay[serviceType][dayKey] ?? 0;
+                    const ratio = restaurantRatioByService[serviceType][dayKey];
+
+                    return (
+                      <div
+                        key={`service-${serviceType}-${dayKey}`}
+                        className="restaurant-summary-cell"
+                      >
+                        <span className="restaurant-summary-assigned">
+                          {people} personas
+                        </span>
+                        <span className="restaurant-summary-covers">
+                          {covers} servicios
+                        </span>
+                        <span className="restaurant-summary-ratio">
+                          {people > 0
+                            ? `Ratio: ${covers}/${people} = ${ratio ?? "0.00"}`
+                            : "Ratio: N/D"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </Fragment>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {!isLoading && !error && filteredEmployees.length === 0 ? (
           <div className="state-card">
@@ -852,22 +1227,25 @@ setAbsences(Array.isArray(shiftsData?.absences) ? shiftsData.absences : []);
       </div>
 
       {showForm ? (
-        <ShiftForm
-          onClose={handleCloseShiftForm}
-          onCreated={handleCreated}
-          initialEmployeeId={prefillEmployeeId}
-          initialDate={prefillDate}
-        />
-      ) : null}
+  <ShiftForm
+  onClose={handleCloseShiftForm}
+  onCreated={handleCreated}
+  initialEmployeeId={prefillEmployeeId}
+  initialDate={prefillDate}
+  initialEndDate={prefillEndDate}
+  shiftId={editingShiftId ?? undefined}
+/>
+) : null}
 
       {showAbsenceForm ? (
         <AbsenceForm
-          onClose={handleCloseAbsenceForm}
-          onCreated={handleCreated}
-          initialEmployeeId={prefillEmployeeId}
-          initialDate={prefillDate}
-          initialEndDate={prefillEndDate}
-        />
+  onClose={handleCloseAbsenceForm}
+  onCreated={handleCreated}
+  absenceId={editingAbsenceId ?? undefined}
+  initialEmployeeId={prefillEmployeeId}
+  initialDate={prefillDate || ""}
+initialEndDate={prefillEndDate || ""}
+/>
       ) : null}
 
       {showCellActionModal && selectedCell ? (
@@ -877,38 +1255,134 @@ setAbsences(Array.isArray(shiftsData?.absences) ? shiftsData.absences : []);
             onClick={(event) => event.stopPropagation()}
           >
             <div className="cell-action-header">
-              <h3 className="cell-action-title">Crear desde cuadrante</h3>
+              <h3 className="cell-action-title">
+  {selectedCell.shiftId
+    ? "Gestionar turno"
+    : selectedCell.absenceId
+    ? "Gestionar ausencia"
+    : selectedCell.availabilityBlockId
+    ? "Gestionar día libre"
+    : "Crear desde cuadrante"}
+</h3>
               <p className="cell-action-subtitle">
-                Elige qué quieres crear para esta celda.
-              </p>
+  {selectedCell.startDate.getTime() !== selectedCell.endDate.getTime()
+    ? `Selección de ${getDatesBetween(
+        selectedCell.startDate,
+        selectedCell.endDate
+      ).length} día(s).`
+    : selectedCell.shiftId
+    ? "Esta celda ya tiene un turno. Puedes editarlo o eliminarlo."
+    : selectedCell.absenceId
+    ? "Esta celda ya tiene una ausencia. Puedes editarla o eliminarla."
+    : selectedCell.availabilityBlockId
+    ? "Esta celda está marcada como día libre. Puedes eliminar el bloqueo."
+    : "La celda está libre. Elige qué quieres crear."}
+</p>
             </div>
 
             <div className="cell-action-body">
-              {selectedCellCanManageShifts ? (
-                <button
-                  type="button"
-                  className="cell-action-option"
-                  onClick={handleCreateShiftFromCell}
-                >
-                  <span className="cell-action-option-title">Crear turno</span>
-                  <span className="cell-action-option-text">
-                    Abrir el formulario de turno con empleado y fecha precargados.
-                  </span>
-                </button>
-              ) : null}
+            {selectedCell.startDate.getTime() !== selectedCell.endDate.getTime() ? (
+  <button
+    type="button"
+    className="cell-action-option danger"
+    onClick={handleDeleteSelectedRangeRecords}
+  >
+    <span className="cell-action-option-title">
+      Eliminar registros de la selección
+    </span>
+    <span className="cell-action-option-text">
+      Borra turnos, ausencias y días libres dentro del rango seleccionado.
+    </span>
+  </button>
+) : null}
 
-              {selectedCellCanCreateAbsences ? (
-                <button
-                  type="button"
-                  className="cell-action-option"
-                  onClick={handleCreateAbsenceFromCell}
-                >
-                  <span className="cell-action-option-title">Crear ausencia</span>
-                  <span className="cell-action-option-text">
-                    Abrir el formulario de ausencia con empleado y fecha precargados.
-                  </span>
-                </button>
-              ) : null}
+         {selectedCell.shiftId || selectedCell.absenceId || selectedCell.availabilityBlockId ? (
+  <button
+    type="button"
+    className="cell-action-option edit"
+    onClick={handleEditSelectedCell}
+  >
+    <span className="cell-action-option-title">
+  {selectedCell.shiftId
+    ? "Editar turno"
+    : selectedCell.absenceId
+    ? "Editar ausencia"
+    : "Gestionar día libre"}
+</span>
+    <span className="cell-action-option-text">
+      Modifica el turno, ausencia o día libre de esta celda.
+    </span>
+  </button>
+) : null}
+
+            {selectedCell.shiftId ||
+selectedCell.absenceId ||
+selectedCell.availabilityBlockId ? (
+  <button
+    type="button"
+    className="cell-action-option danger"
+    onClick={handleDeleteSelectedCellRecord}
+  >
+    <span className="cell-action-option-title">
+  {selectedCell.shiftId
+    ? "Eliminar turno"
+    : selectedCell.absenceId
+    ? "Eliminar ausencia"
+    : "Eliminar día libre"}
+</span>
+    <span className="cell-action-option-text">
+      Borra el turno, ausencia o día libre de esta celda.
+    </span>
+  </button>
+) : null}
+
+{!selectedCell.shiftId &&
+!selectedCell.absenceId &&
+!selectedCell.availabilityBlockId &&
+selectedCellCanManageShifts ? (
+  <button
+    type="button"
+    className="cell-action-option"
+    onClick={handleCreateShiftFromCell}
+  >
+    <span className="cell-action-option-title">Crear turno</span>
+    <span className="cell-action-option-text">
+      Abrir el formulario de turno con empleado y fecha precargados.
+    </span>
+  </button>
+) : null}
+              
+{!selectedCell.absenceId &&
+!selectedCell.availabilityBlockId &&
+selectedCellCanCreateAbsences ? (
+  <button
+    type="button"
+    className="cell-action-option"
+    onClick={handleCreateAbsenceFromCell}
+  >
+    <span className="cell-action-option-title">Crear ausencia</span>
+    <span className="cell-action-option-text">
+      Abrir el formulario de ausencia con empleado y fecha precargados.
+    </span>
+  </button>
+) : null}
+
+
+{!selectedCell.shiftId &&
+!selectedCell.absenceId &&
+!selectedCell.availabilityBlockId &&
+selectedCellCanManageShifts ? (
+  <button
+    type="button"
+    className="cell-action-option"
+    onClick={handleCreateDayOffFromCell}
+  >
+    <span className="cell-action-option-title">Marcar día libre</span>
+    <span className="cell-action-option-text">
+      Bloquea al empleado para que no sea asignado automáticamente ese día.
+    </span>
+  </button>
+) : null}
 
               {!selectedCellCanManageShifts && !selectedCellCanCreateAbsences ? (
                 <div className="cell-action-empty">
@@ -1014,6 +1488,7 @@ setAbsences(Array.isArray(shiftsData?.absences) ? shiftsData.absences : []);
 
         .week-range-card,
         .planner-card,
+        .restaurant-summary-card,
         .state-card,
         .filters-card {
           background: white;
@@ -1206,13 +1681,112 @@ setAbsences(Array.isArray(shiftsData?.absences) ? shiftsData.absences : []);
         .planner-day-name {
           font-size: 10px;
           text-transform: uppercase;
-          letter-spacing: 0.04em;
+          letter-spacing: 0;
           color: #cbd5e1;
         }
 
         .planner-day-date {
           font-size: 16px;
           font-weight: 800;
+        }
+
+        .restaurant-summary-card {
+          border-radius: 16px;
+          border: 1px solid #e2e8f0;
+          overflow-x: auto;
+          box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+          background: white;
+        }
+
+        .restaurant-summary-header {
+          padding: 14px 16px;
+          border-bottom: 1px solid #e2e8f0;
+        }
+
+        .restaurant-summary-grid {
+          display: grid;
+          grid-template-columns: 150px repeat(7, minmax(120px, 1fr));
+          min-width: 960px;
+        }
+
+        .restaurant-summary-corner {
+          position: sticky;
+          left: 0;
+          z-index: 2;
+          background: #0f172a;
+          color: white;
+          padding: 10px 8px;
+          font-size: 11px;
+          font-weight: 700;
+          border-right: 1px solid #1e293b;
+        }
+
+        .restaurant-summary-day {
+          background: #0f172a;
+          color: white;
+          padding: 10px 6px;
+          border-left: 1px solid #1e293b;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          align-items: center;
+          text-align: center;
+        }
+
+        .restaurant-summary-day span {
+          font-size: 10px;
+          text-transform: uppercase;
+          color: #cbd5e1;
+          letter-spacing: 0;
+        }
+
+        .restaurant-summary-day strong {
+          font-size: 15px;
+          line-height: 1;
+        }
+
+        .restaurant-summary-service {
+          position: sticky;
+          left: 0;
+          z-index: 1;
+          background: white;
+          border-top: 1px solid #e2e8f0;
+          border-right: 1px solid #e2e8f0;
+          padding: 12px 10px;
+          font-size: 12px;
+          font-weight: 800;
+          color: #0f172a;
+          display: flex;
+          align-items: center;
+        }
+
+        .restaurant-summary-cell {
+          border-top: 1px solid #e2e8f0;
+          border-left: 1px solid #e2e8f0;
+          padding: 8px;
+          min-height: 72px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 4px;
+        }
+
+        .restaurant-summary-assigned {
+          font-size: 16px;
+          font-weight: 800;
+          color: #0f172a;
+          line-height: 1;
+        }
+
+        .restaurant-summary-covers {
+          font-size: 11px;
+          color: #334155;
+        }
+
+        .restaurant-summary-ratio {
+          font-size: 11px;
+          color: #64748b;
         }
 
         .cell-action-overlay {
@@ -1286,6 +1860,44 @@ setAbsences(Array.isArray(shiftsData?.absences) ? shiftsData.absences : []);
           box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
         }
 
+        .cell-action-option.edit {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.cell-action-option.edit:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.12);
+}
+
+.cell-action-option.edit .cell-action-option-title {
+  color: #1e3a8a;
+}
+
+.cell-action-option.edit .cell-action-option-text {
+  color: #1d4ed8;
+}
+
+        .cell-action-option.danger {
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.cell-action-option.danger:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  box-shadow: 0 8px 20px rgba(220, 38, 38, 0.12);
+}
+
+.cell-action-option.danger .cell-action-option-title {
+  color: #991b1b;
+}
+
+.cell-action-option.danger .cell-action-option-text {
+  color: #b91c1c;
+}
+
         .cell-action-option-title {
           font-size: 14px;
           font-weight: 700;
@@ -1315,9 +1927,9 @@ setAbsences(Array.isArray(shiftsData?.absences) ? shiftsData.absences : []);
         }
 
         @media (max-width: 1200px) {
-          .planner-card {
-            overflow-x: auto;
-          }
+        .planner-card {
+          overflow-x: auto;
+        }
 
           .planner-grid {
             min-width: 900px;
@@ -1361,8 +1973,17 @@ type WeeklyEmployeeRowProps = {
   weekDays: Date[];
   shifts: Shift[];
   absences: Absence[];
+  availabilityBlocks: EmployeeAvailabilityBlock[];
+  selectedCell: CellSelection | null;
   canInteract: boolean;
-  onDayClick: (day: Date) => void;
+  onDayClick: (
+    day: Date,
+    cellContent?: {
+      shiftId?: string;
+      absenceId?: string;
+      availabilityBlockId?: string;
+    }
+  ) => void;
   onRangeSelect?: (start: Date, end: Date) => void;
 };
 
@@ -1371,22 +1992,61 @@ function WeeklyEmployeeRow({
   weekDays,
   shifts,
   absences,
+  availabilityBlocks,
+  selectedCell,
   canInteract,
   onDayClick,
   onRangeSelect,
 }: WeeklyEmployeeRowProps) {
+
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectionStart, setSelectionStart] = useState<Date | null>(null);
   const [selectionEnd, setSelectionEnd] = useState<Date | null>(null);
 
-  function isInRange(day: Date) {
-    if (!selectionStart || !selectionEnd) return false;
+  const employeeAbsences = useMemo(
+    () =>
+      absences.filter(
+        (absence) =>
+          absence.employeeId === employee.id &&
+          absence.status !== "REJECTED" &&
+          absence.status !== "CANCELLED"
+      ),
+    [absences, employee.id]
+  );
 
+  const employeeAvailabilityBlocks = useMemo(
+    () => availabilityBlocks.filter((block) => block.employeeId === employee.id),
+    [availabilityBlocks, employee.id]
+  );
+
+  function isInRange(day: Date) {
+  // Selección mientras arrastras
+  if (selectionStart && selectionEnd) {
     const start = selectionStart < selectionEnd ? selectionStart : selectionEnd;
     const end = selectionStart > selectionEnd ? selectionStart : selectionEnd;
 
-    return day >= startOfDay(start) && day <= endOfDay(end);
+    if (day >= startOfDay(start) && day <= endOfDay(end)) {
+      return true;
+    }
   }
+
+  // Selección ya confirmada (desde selectedCell)
+  if (
+    selectedCell &&
+    selectedCell.employeeId === employee.id &&
+    selectedCell.startDate &&
+    selectedCell.endDate
+  ) {
+    const start = startOfDay(selectedCell.startDate);
+    const end = endOfDay(selectedCell.endDate);
+
+    if (day >= start && day <= end) {
+      return true;
+    }
+  }
+
+  return false;
+}
 
   return (
     <>
@@ -1414,6 +2074,8 @@ function WeeklyEmployeeRow({
       </div>
 
       {weekDays.map((day) => {
+        const dayDate = toInputDate(day);
+
         const dayShifts = shifts
           .filter((shift) => isSameDay(new Date(shift.startAt), day))
           .sort(
@@ -1421,38 +2083,46 @@ function WeeklyEmployeeRow({
               new Date(a.startAt).getTime() - new Date(b.startAt).getTime()
           );
 
-        const dayAbsence = absences.find((absence) => {
-          if (absence.status !== "APPROVED") {
-            return false;
-          }
+        const dayFullAbsence =
+          employeeAbsences.find(
+            (absence) =>
+              absence.unit === "FULL_DAY" &&
+              isDateOnlyInRange(dayDate, absence.startDate, absence.endDate)
+          ) ?? null;
 
-          if (absence.unit !== "FULL_DAY") {
-            return false;
-          }
+        const dayHourlyAbsence =
+          employeeAbsences.find(
+            (absence) => absence.unit === "HOURLY" && absence.startDate === dayDate
+          ) ?? null;
 
-          const startDate = new Date(absence.startDate);
-          const endDate = new Date(absence.endDate);
+        const dayOff =
+          employeeAvailabilityBlocks.find(
+            (block) =>
+              (block.type === "DAY_OFF" || block.type === "UNAVAILABLE") &&
+              block.date === dayDate
+          ) ?? null;
 
-          return day >= startOfDay(startDate) && day <= endOfDay(endDate);
-        });
+const dayShift = dayShifts[0] ?? null;
 
-        const dayHourlyAbsence = absences.find((absence) => {
-          if (absence.status !== "APPROVED") {
-            return false;
-          }
+const hasConflict = Boolean(
+  (dayShift && dayFullAbsence) ||
+    (dayShift && dayOff)
+);
 
-          if (absence.unit !== "HOURLY") {
-            return false;
-          }
+const hasWarning = Boolean(dayShift && dayHourlyAbsence);
 
-          return isSameDay(new Date(absence.startDate), day);
-        });
 
         return (
-          <button
-            key={`${employee.id}-${day.toISOString()}`}
-            type="button"
-            className={`day-cell ${isInRange(day) ? "selecting" : ""} ${canInteract ? "" : "readonly"}`}
+          <div
+  key={`${employee.id}-${day.toISOString()}`}
+  role="button"
+  tabIndex={canInteract ? 0 : -1}
+ className={`day-cell 
+  ${isInRange(day) ? "selecting" : ""} 
+  ${canInteract ? "" : "readonly"} 
+  ${hasConflict ? "conflict" : ""} 
+  ${hasWarning ? "warning" : ""}`}
+
             onMouseDown={() => {
               if (!canInteract) return;
               setIsSelecting(true);
@@ -1470,103 +2140,90 @@ function WeeklyEmployeeRow({
               setIsSelecting(false);
 
               if (selectionStart.getTime() === day.getTime()) {
-                onDayClick(day);
-              } else {
-                onRangeSelect?.(selectionStart, day);
-              }
+  onDayClick(day, {
+    shiftId: dayShift?.id,
+    absenceId: dayFullAbsence?.id ?? dayHourlyAbsence?.id,
+    availabilityBlockId: dayOff?.id,
+  });
+} else {
+  onRangeSelect?.(selectionStart, day);
+}
 
               setSelectionStart(null);
               setSelectionEnd(null);
             }}
             title={canInteract ? "Crear turno o ausencia" : "Solo lectura"}
           >
-            {dayAbsence ? (
-              <div
-                className="absence-card"
-                style={{ background: dayAbsence.absenceType.color || "#fee2e2" }}
+{hasConflict ? (
+  <div className="cell-alert conflict">Conflicto</div>
+) : hasWarning ? (
+  <div className="cell-alert warning">Aviso</div>
+) : null}
+
+{dayOff ? (
+  <div className="day-off-card">
+    <div className="day-off-label">Libre</div>
+    <div className="day-off-name">
+      {dayOff.reason || "Día libre"}
+    </div>
+  </div>
+) : dayFullAbsence ? (
+  <div
+    className="absence-card"
+    style={{ background: dayFullAbsence.absenceType.color || "#fee2e2" }}
+  >
+    <div className="absence-label">Ausencia</div>
+    <div className="absence-name">{dayFullAbsence.absenceType.name}</div>
+  </div>
+) : (
+  <div className="day-content">
+    {dayShifts.length > 0 ? (
+      <div className="shift-list">
+        {dayShifts.map((shift) => (
+          <div key={shift.id} className={`shift-card ${shift.status.toLowerCase()}`}>
+            <div className="shift-card-top">
+              <div className="shift-time">
+                {formatTime(shift.startAt)} - {formatTime(shift.endAt)}
+              </div>
+              <span
+                className={`shift-origin ${
+                  isAutoAssignedShift(shift) ? "auto" : "manual"
+                }`}
               >
-                <div className="absence-label">Ausencia</div>
-                <div className="absence-name">{dayAbsence.absenceType.name}</div>
-                {dayAbsence.notes ? (
-                  <div className="absence-notes" title={dayAbsence.notes}>
-                    {dayAbsence.notes}
-                  </div>
-                ) : null}
-              </div>
-            ) : (
-              <div className="day-content">
-                {dayHourlyAbsence ? (
-                  <div
-                    className="hourly-absence-badge"
-                    style={{
-                      background: dayHourlyAbsence.absenceType.color || "#fef3c7",
-                    }}
-                    title={`${dayHourlyAbsence.absenceType.name} · ${formatMinutes(dayHourlyAbsence.startMinutes)} - ${formatMinutes(dayHourlyAbsence.endMinutes)}`}
-                  >
-                    {dayHourlyAbsence.absenceType.name} ·{" "}
-                    {formatMinutes(dayHourlyAbsence.startMinutes)} -{" "}
-                    {formatMinutes(dayHourlyAbsence.endMinutes)}
-                  </div>
-                ) : null}
+                {isAutoAssignedShift(shift) ? "Propuesta" : "Usuario"}
+              </span>
+            </div>
 
-                {dayShifts.length === 0 ? (
-                  <div className="empty-day">—</div>
-                ) : (
-                  <div className="shift-list">
-                    {dayShifts.map((shift) => (
-                      <div
-                        key={shift.id}
-                        className={`shift-card ${shift.status.toLowerCase()}`}
-                        style={{
-                          background:
-                            shift.shiftMaster?.backgroundColor ||
-                            getStatusBackground(shift.status),
-                        }}
-                      >
-                        <div className="shift-card-top">
-                          <div className="shift-time">
-                            {formatTime(shift.startAt)} - {formatTime(shift.endAt)}
-                          </div>
+            <div className="shift-code">
+              {shift.shiftMaster?.code || "MANUAL"}
+            </div>
 
-                          {shift.shiftMaster ? (
-                            <span className={`shift-type ${shift.shiftMaster.type.toLowerCase()}`}>
-                              {formatType(shift.shiftMaster.type)}
-                            </span>
-                          ) : null}
-                        </div>
+            <div className="shift-description">
+              {shift.shiftMaster?.name || "Turno manual"}
+            </div>
+          </div>
+        ))}
+      </div>
+    ) : (
+      <div className="empty-day">—</div>
+    )}
 
-                        <div
-                          className="shift-master-name"
-                          title={shift.shiftMaster?.name || "Turno manual"}
-                        >
-                          {shift.shiftMaster?.name || "Turno manual"}
-                        </div>
-
-                        <div
-                          className="shift-meta"
-                          title={`${shift.department.name}${shift.workArea?.name ? ` · ${shift.workArea.name}` : ""}`}
-                        >
-                          {shift.department.name}
-                          {shift.workArea?.name ? ` · ${shift.workArea.name}` : ""}
-                        </div>
-
-                        <div className="shift-workplace" title={shift.workplace.name}>
-                          {shift.workplace.name}
-                        </div>
-
-                        {shift.notes ? (
-                          <div className="shift-notes" title={shift.notes}>
-                            {shift.notes}
-                          </div>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </button>
-        );
+    {dayHourlyAbsence ? (
+      <div
+        className="hourly-absence-badge"
+        style={{
+          background: dayHourlyAbsence.absenceType.color || "#fef3c7",
+        }}
+      >
+        {dayHourlyAbsence.absenceType.name} ·{" "}
+        {formatMinutes(dayHourlyAbsence.startMinutes)} -{" "}
+        {formatMinutes(dayHourlyAbsence.endMinutes)}
+      </div>
+    ) : null}
+  </div>
+)}
+</div>
+);
       })}
 
       <style jsx>{`
@@ -1586,6 +2243,15 @@ function WeeklyEmployeeRow({
           gap: 6px;
           min-width: 0;
         }
+
+         .day-cell.conflict {
+  background: #fee2e2;
+  outline: 2px solid #dc2626;
+}
+
+.day-cell.warning {
+  background: #fef3c7;
+}
 
         .employee-avatar {
           width: 28px;
@@ -1707,6 +2373,57 @@ function WeeklyEmployeeRow({
           text-overflow: ellipsis;
         }
 
+         .day-off-card {
+  min-height: 74px;
+  border-radius: 10px;
+  padding: 6px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.day-off-label {
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #1d4ed8;
+  line-height: 1.1;
+}
+
+.day-off-name {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #1e3a8a;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cell-alert {
+  margin-bottom: 4px;
+  border-radius: 999px;
+  padding: 3px 6px;
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+  width: fit-content;
+}
+
+.cell-alert.conflict {
+  background: #dc2626;
+  color: white;
+}
+
+.cell-alert.warning {
+  background: #f59e0b;
+  color: #78350f;
+}
+
         .hourly-absence-badge {
           border-radius: 8px;
           padding: 4px 6px;
@@ -1726,12 +2443,13 @@ function WeeklyEmployeeRow({
         }
 
         .shift-card {
-          border-radius: 10px;
-          padding: 5px 6px;
-          border: 1px solid #e2e8f0;
-          background: #f8fafc;
-          overflow: hidden;
-        }
+  position: relative;
+  border-radius: 10px;
+  padding: 5px 6px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  overflow: hidden;
+}
 
         .shift-card.borrador {
           border-color: #fcd34d;
@@ -1753,11 +2471,35 @@ function WeeklyEmployeeRow({
           gap: 4px;
         }
 
+        
         .shift-time {
           font-size: 10px;
           font-weight: 800;
           color: #0f172a;
           line-height: 1.1;
+        }
+
+        .shift-origin {
+          border-radius: 999px;
+          padding: 1px 6px;
+          font-size: 8px;
+          font-weight: 800;
+          text-transform: uppercase;
+          border: 1px solid transparent;
+          white-space: nowrap;
+          line-height: 1.2;
+        }
+
+        .shift-origin.auto {
+          color: #92400e;
+          background: #fffbeb;
+          border-color: #fcd34d;
+        }
+
+        .shift-origin.manual {
+          color: #1e3a8a;
+          background: #eff6ff;
+          border-color: #bfdbfe;
         }
 
         .shift-type {
@@ -1790,41 +2532,25 @@ function WeeklyEmployeeRow({
           color: #155e75;
         }
 
-        .shift-master-name,
-        .shift-meta,
-        .shift-workplace,
-        .shift-notes {
+        .shift-code,
+        .shift-description {
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
         }
 
-        .shift-master-name {
+        .shift-code {
           margin-top: 4px;
-          font-size: 10px;
-          font-weight: 700;
-          color: #0f172a;
+          font-size: 9px;
+          font-weight: 900;
+          color: #1e3a8a;
           line-height: 1.1;
         }
 
-        .shift-meta {
+        .shift-description {
           margin-top: 3px;
           font-size: 9px;
           color: #334155;
-          line-height: 1.1;
-        }
-
-        .shift-workplace {
-          margin-top: 3px;
-          font-size: 9px;
-          color: #64748b;
-          line-height: 1.1;
-        }
-
-        .shift-notes {
-          margin-top: 3px;
-          font-size: 9px;
-          color: #475569;
           line-height: 1.1;
         }
       `}</style>
@@ -1862,6 +2588,21 @@ function endOfDay(date: Date) {
   return result;
 }
 
+function getDatesBetween(start: Date, end: Date) {
+  const normalizedStart = start <= end ? start : end;
+  const normalizedEnd = start <= end ? end : start;
+
+  const result: Date[] = [];
+  let current = startOfDay(normalizedStart);
+
+  while (current <= endOfDay(normalizedEnd)) {
+    result.push(new Date(current));
+    current = addDays(current, 1);
+  }
+
+  return result;
+}
+
 function isSameDay(a: Date, b: Date) {
   return (
     a.getFullYear() === b.getFullYear() &&
@@ -1870,12 +2611,39 @@ function isSameDay(a: Date, b: Date) {
   );
 }
 
-function toInputDate(date: Date) {
+function toInputDate(date: Date): DateOnly {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
 
-  return `${year}-${month}-${day}`;
+  return `${year}-${month}-${day}` as DateOnly;
+}
+
+function normalizeAbsence(absence: Absence): Absence {
+  return {
+    ...absence,
+    startDate: formatDateOnly(absence.startDate),
+    endDate: formatDateOnly(absence.endDate),
+  };
+}
+
+function normalizeAvailabilityBlock(
+  block: EmployeeAvailabilityBlock
+): EmployeeAvailabilityBlock {
+  return {
+    ...block,
+    date: formatDateOnly(block.date),
+  };
+}
+
+function normalizeEmployee(employee: Employee): Employee {
+  return {
+    ...employee,
+    employeeContracts: employee.employeeContracts?.map((contract) => ({
+      ...contract,
+      startDate: formatDateOnly(contract.startDate),
+    })),
+  };
 }
 
 function formatLongDate(date: Date) {
@@ -1897,6 +2665,7 @@ function formatTime(value: string) {
   return new Intl.DateTimeFormat("es-ES", {
     hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
   }).format(new Date(value));
 }
 
@@ -1940,3 +2709,179 @@ function getStatusBackground(status: ShiftStatus) {
       return "#f8fafc";
   }
 }
+
+function isAutoAssignedShift(shift: Shift) {
+  const notes = (shift.notes ?? "").toLocaleLowerCase("es");
+  return (
+    notes.includes("asignacion automatica") ||
+    notes.includes("asignación automática")
+  );
+}
+
+function createEmptyRestaurantServiceDayMap(): Record<
+  RestaurantServiceType,
+  Partial<Record<DateOnly, number>>
+> {
+  return {
+    BREAKFAST: {},
+    LUNCH: {},
+    DINNER: {},
+  };
+}
+
+function loadPlannedCoversByServiceFromStorage(weekStart: Date) {
+  const empty = createEmptyRestaurantServiceDayMap();
+
+  if (typeof window === "undefined") {
+    return empty;
+  }
+
+  const raw = window.localStorage.getItem(getRestaurantWeekStorageKey(weekStart));
+  if (!raw) return empty;
+
+  try {
+    const parsed = JSON.parse(raw) as RestaurantPlanningWeekStorage;
+    const result = createEmptyRestaurantServiceDayMap();
+
+    const dayMap: PlanningDayKey[] = [
+      "monday",
+      "tuesday",
+      "wednesday",
+      "thursday",
+      "friday",
+      "saturday",
+      "sunday",
+    ];
+
+    dayMap.forEach((dayKey, index) => {
+      const dayDate = addDays(weekStart, index);
+      const dateKey = toInputDate(dayDate);
+
+      const breakfast = Number(parsed.breakfastCovers?.[dayKey] ?? 0);
+      const lunch = Number(parsed.lunchCovers?.[dayKey] ?? 0);
+      const dinner = Number(parsed.dinnerCovers?.[dayKey] ?? 0);
+
+      result.BREAKFAST[dateKey] =
+        Number.isFinite(breakfast) && breakfast > 0 ? breakfast : 0;
+      result.LUNCH[dateKey] = Number.isFinite(lunch) && lunch > 0 ? lunch : 0;
+      result.DINNER[dateKey] = Number.isFinite(dinner) && dinner > 0 ? dinner : 0;
+    });
+
+    return result;
+  } catch {
+    return empty;
+  }
+}
+
+function getRestaurantWeekStorageKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `turnohotel.restaurantPlanning.week.${year}-${month}-${day}`;
+}
+
+function getRestaurantServicesFromShift(
+  shift: Shift
+): RestaurantServiceType[] {
+  if (!shift.shiftMaster || shift.shiftMaster.type !== "RESTAURANTE") {
+    return [];
+  }
+
+  const explicitService = getAutoAssignedServiceFromNotes(shift.notes);
+  if (explicitService) {
+    return [explicitService];
+  }
+
+  const services: RestaurantServiceType[] = [];
+
+  if (shift.shiftMaster.coversBreakfast) services.push("BREAKFAST");
+  if (shift.shiftMaster.coversLunch) services.push("LUNCH");
+  if (shift.shiftMaster.coversDinner) services.push("DINNER");
+
+  return services;
+}
+
+function getAutoAssignedServiceFromNotes(
+  notes: string | null
+): RestaurantServiceType | null {
+  if (!notes) return null;
+  const normalized = notes.toLocaleLowerCase("es");
+
+  if (
+    !normalized.includes("asignación automática") &&
+    !normalized.includes("asignacion automatica")
+  ) {
+    return null;
+  }
+
+  if (normalized.includes("servicio: desayuno")) return "BREAKFAST";
+  if (normalized.includes("servicio: almuerzo")) return "LUNCH";
+  if (normalized.includes("servicio: cena")) return "DINNER";
+
+  return null;
+}
+
+function buildRestaurantCoverageByService(shifts: Shift[]) {
+  const result: Record<
+    RestaurantServiceType,
+    Partial<Record<DateOnly, number>>
+  > = {
+    BREAKFAST: {},
+    LUNCH: {},
+    DINNER: {},
+  };
+
+  for (const shift of shifts) {
+    const dayKey = toInputDate(new Date(shift.startAt));
+    for (const serviceType of getRestaurantServicesFromShift(shift)) {
+      result[serviceType][dayKey] = (result[serviceType][dayKey] ?? 0) + 1;
+    }
+  }
+
+  return result;
+}
+
+function buildRestaurantRatioByService(params: {
+  coversByService: Record<RestaurantServiceType, Partial<Record<DateOnly, number>>>;
+  peopleByService: Record<RestaurantServiceType, Partial<Record<DateOnly, number>>>;
+}) {
+  const result: Record<
+    RestaurantServiceType,
+    Partial<Record<DateOnly, string>>
+  > = {
+    BREAKFAST: {},
+    LUNCH: {},
+    DINNER: {},
+  };
+
+  const services: RestaurantServiceType[] = ["BREAKFAST", "LUNCH", "DINNER"];
+
+  for (const serviceType of services) {
+    const dayKeys = new Set<DateOnly>([
+      ...Object.keys(params.coversByService[serviceType] ?? {}),
+      ...Object.keys(params.peopleByService[serviceType] ?? {}),
+    ] as DateOnly[]);
+
+    for (const dayKey of dayKeys) {
+      const covers = params.coversByService[serviceType][dayKey] ?? 0;
+      const people = params.peopleByService[serviceType][dayKey] ?? 0;
+
+      if (people <= 0) {
+        result[serviceType][dayKey] = covers > 0 ? "N/D" : "0.00";
+        continue;
+      }
+
+      result[serviceType][dayKey] = (covers / people).toFixed(2);
+    }
+  }
+
+  return result;
+}
+
+function formatRestaurantService(serviceType: RestaurantServiceType) {
+  if (serviceType === "BREAKFAST") return "Desayunos";
+  if (serviceType === "LUNCH") return "Almuerzos";
+  return "Cenas";
+}
+

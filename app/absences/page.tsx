@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { formatDateOnly, type DateOnly } from "@/lib/date-only";
 
 type Absence = {
   id: string;
@@ -13,8 +14,8 @@ type Absence = {
     color: string | null;
   };
   unit: "FULL_DAY" | "HOURLY";
-  startDate: string;
-  endDate: string;
+  startDate: DateOnly;
+  endDate: DateOnly;
   status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
   notes: string | null;
 };
@@ -37,8 +38,14 @@ export default function AbsencesPage() {
         throw new Error("Error cargando ausencias");
       }
 
-      const data = await res.json();
-      setAbsences(data);
+      const data = (await res.json()) as Absence[];
+      setAbsences(
+        data.map((absence) => ({
+          ...absence,
+          startDate: formatDateOnly(absence.startDate),
+          endDate: formatDateOnly(absence.endDate),
+        }))
+      );
     } finally {
       setLoading(false);
     }
@@ -82,8 +89,8 @@ export default function AbsencesPage() {
                 </div>
 
                 <div style={{ fontSize: 12 }}>
-                  {new Date(a.startDate).toLocaleDateString()} -{" "}
-                  {new Date(a.endDate).toLocaleDateString()}
+                  {formatDisplayDate(a.startDate)} -{" "}
+                  {formatDisplayDate(a.endDate)}
                 </div>
 
                 <div style={{ fontSize: 11, opacity: 0.7 }}>
@@ -106,4 +113,10 @@ export default function AbsencesPage() {
       )}
     </div>
   );
+}
+
+function formatDisplayDate(value: DateOnly) {
+  const [year, month, day] = value.split("-");
+
+  return `${day}/${month}/${year}`;
 }

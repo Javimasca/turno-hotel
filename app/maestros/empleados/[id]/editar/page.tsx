@@ -51,6 +51,16 @@ type EmployeeResponse = {
       }
     }
   }>
+  employeeWorkAreas?: Array<{
+    workAreaId: string
+    isPrimary: boolean
+    workArea: {
+      id: string
+      code: string
+      name: string
+      departmentId: string
+    }
+  }>
 }
 
 type ErrorResponse = {
@@ -79,6 +89,18 @@ type Department = {
     id: string
     name: string
   }
+}
+
+type WorkArea = {
+  id: string
+  code: string
+  name: string
+  departmentId: string
+}
+
+type EmployeeWorkAreaItem = {
+  workAreaId: string
+  isPrimary: boolean
 }
 
 type WorkplacesApiResponse =
@@ -148,6 +170,8 @@ export default function EditEmployeePage({ params }: Props) {
   const [managers, setManagers] = useState<Manager[]>([])
   const [workplaces, setWorkplaces] = useState<Workplace[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
+  const [workAreas, setWorkAreas] = useState<WorkArea[]>([])
+  const [selectedWorkAreas, setSelectedWorkAreas] = useState<EmployeeWorkAreaItem[]>([])
 
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -188,7 +212,7 @@ export default function EditEmployeePage({ params }: Props) {
           return
         }
 
-        const [managersResult, workplacesResult, departmentsResult] =
+        const [managersResult, workplacesResult, departmentsResult, workAreasResult] =
           await Promise.allSettled([
             fetch('/api/maestros/empleados?isActive=true', {
               cache: 'no-store',
@@ -227,6 +251,17 @@ export default function EditEmployeePage({ params }: Props) {
 
               return Array.isArray(json) ? json : []
             }),
+            fetch('/api/work-areas?isActive=true', {
+              cache: 'no-store',
+            }).then(async (response) => {
+              const json = await response.json().catch(() => [])
+
+              if (!response.ok) {
+                return []
+              }
+
+              return Array.isArray(json) ? json : []
+            }),
           ])
 
         if (!isMounted) return
@@ -254,6 +289,15 @@ export default function EditEmployeePage({ params }: Props) {
           departmentsResult.status === 'fulfilled'
             ? departmentsResult.value
             : [],
+        )
+        setWorkAreas(
+          workAreasResult.status === 'fulfilled' ? workAreasResult.value : [],
+        )
+        setSelectedWorkAreas(
+          (employeeJson.employeeWorkAreas ?? []).map((item) => ({
+            workAreaId: item.workAreaId,
+            isPrimary: item.isPrimary,
+          })),
         )
 
         setIsLoading(false)
@@ -285,6 +329,37 @@ export default function EditEmployeePage({ params }: Props) {
       )
     : departments
 
+  const filteredWorkAreas = form.departmentId
+    ? workAreas.filter((workArea) => workArea.departmentId === form.departmentId)
+    : []
+
+  function toggleWorkArea(workAreaId: string) {
+    setSelectedWorkAreas((current) => {
+      const exists = current.some((item) => item.workAreaId === workAreaId)
+
+      if (exists) {
+        return current.filter((item) => item.workAreaId !== workAreaId)
+      }
+
+      return [
+        ...current,
+        {
+          workAreaId,
+          isPrimary: current.length === 0,
+        },
+      ]
+    })
+  }
+
+  function setPrimaryWorkArea(workAreaId: string) {
+    setSelectedWorkAreas((current) =>
+      current.map((item) => ({
+        ...item,
+        isPrimary: item.workAreaId === workAreaId,
+      })),
+    )
+  }
+
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
 
@@ -306,6 +381,9 @@ export default function EditEmployeePage({ params }: Props) {
           directManagerEmployeeId: form.directManagerEmployeeId || null,
           workplaceId: form.workplaceId || null,
           departmentId: form.departmentId || null,
+          workAreaIds: selectedWorkAreas.map((item) => item.workAreaId),
+          primaryWorkAreaId:
+            selectedWorkAreas.find((item) => item.isPrimary)?.workAreaId ?? null,
           isActive: form.isActive === 'true',
         }),
       })
@@ -642,6 +720,8 @@ export default function EditEmployeePage({ params }: Props) {
                         departmentId: keepDepartment ? f.departmentId : '',
                       }
                     })
+
+                    setSelectedWorkAreas([])
                   }}
                 >
                   <option value="">Sin asignar</option>
@@ -657,12 +737,24 @@ export default function EditEmployeePage({ params }: Props) {
                 <label>Departamento</label>
                 <select
                   value={form.departmentId}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const nextDepartmentId = e.target.value
+
                     setForm((f) => ({
                       ...f,
-                      departmentId: e.target.value,
+                      departmentId: nextDepartmentId,
                     }))
-                  }
+
+                    setSelectedWorkAreas((current) =>
+                      current.filter((item) =>
+                        workAreas.some(
+                          (workArea) =>
+                            workArea.id === item.workAreaId &&
+                            workArea.departmentId === nextDepartmentId,
+                        ),
+                      ),
+                    )
+                  }}
                 >
                   <option value="">Sin asignar</option>
                   {filteredDepartments.map((department) => (
@@ -674,6 +766,86 @@ export default function EditEmployeePage({ params }: Props) {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div className="form-field" style={{ gridColumn: '1 / -1' }}>
+                <label>Áreas de trabajo</label>
+
+                {form.departmentId ? (
+                  filteredWorkAreas.length > 0 ? (
+                    <div
+                      style={{
+                        display: 'grid',
+                        gap: '0.75rem',
+                        gridTemplateColumns:
+                          'repeat(auto-fit, minmax(220px, 1fr))',
+                      }}
+                    >
+                      {filteredWorkAreas.map((workArea) => {
+                        const selected = selectedWorkAreas.find(
+                          (item) => item.workAreaId === workArea.id,
+                        )
+
+                        return (
+                          <div
+                            key={workArea.id}
+                            style={{
+                              border: '1px solid #d1d5db',
+                              borderRadius: '0.75rem',
+                              padding: '0.75rem',
+                              background: selected ? '#f8fafc' : 'white',
+                            }}
+                          >
+                            <label
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.5rem',
+                                fontWeight: 600,
+                                marginBottom: '0.5rem',
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={Boolean(selected)}
+                                onChange={() => toggleWorkArea(workArea.id)}
+                              />
+                              {workArea.name}
+                            </label>
+
+                            {selected ? (
+                              <label
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.5rem',
+                                  fontSize: '0.875rem',
+                                  color: '#475569',
+                                }}
+                              >
+                                <input
+                                  type="radio"
+                                  name="primaryWorkArea"
+                                  checked={selected.isPrimary}
+                                  onChange={() => setPrimaryWorkArea(workArea.id)}
+                                />
+                                Área principal
+                              </label>
+                            ) : null}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <p style={{ color: '#64748b', margin: 0 }}>
+                      No hay áreas configuradas para este departamento.
+                    </p>
+                  )
+                ) : (
+                  <p style={{ color: '#64748b', margin: 0 }}>
+                    Selecciona primero un departamento.
+                  </p>
+                )}
               </div>
 
               <div className="form-field form-field-checkbox">

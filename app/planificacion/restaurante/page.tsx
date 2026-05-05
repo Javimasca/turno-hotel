@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type ServiceType = "BREAKFAST" | "LUNCH" | "DINNER";
@@ -23,17 +24,46 @@ type CoversByDay = Record<DayKey, number>;
 type WeeklyDemandDay = {
   date: string;
   serviceType: ServiceType;
+  workAreaId: string | null;
   covers: number;
-  ratioCoversPerEmployee: number;
-  employeesNeeded: number;
+  ratioCoversPerEmployee: number | null;
+  employeesNeeded: number | null;
+  status: "OK" | "MISSING_RULE";
 };
 
 type WeeklyProposalLine = {
   date: string;
   serviceType: ServiceType;
+  workAreaId: string;
+  shiftMasterId: string;
   startAt: string;
   endAt: string;
   employeesNeeded: number;
+};
+
+type ExistingRestaurantShift = {
+  id: string;
+  employeeId: string;
+  workAreaId: string | null;
+  startAt: string;
+  endAt: string;
+  notes: string | null;
+  employee: {
+    firstName: string;
+    lastName: string;
+  };
+  workArea: {
+    id: string;
+    name: string;
+  } | null;
+  shiftMaster: {
+    id: string;
+    name: string;
+    type: string;
+    coversBreakfast: boolean;
+    coversLunch: boolean;
+    coversDinner: boolean;
+  } | null;
 };
 
 type WorkplaceOption = {
@@ -45,6 +75,8 @@ type DepartmentOption = {
   id: string;
   name: string;
 };
+
+const CONTEXT_STORAGE_KEY = "turnohotel.restaurantPlanning.context";
 
 const DAY_LABELS: Record<DayKey, string> = {
   monday: "Lun",
@@ -66,6 +98,14 @@ const EMPTY_WEEK_VALUES: CoversByDay = {
   sunday: 0,
 };
 
+function getWeekStorageKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `turnohotel.restaurantPlanning.week.${year}-${month}-${day}`;
+}
+
 export default function RestaurantPlanningPage() {
   const [workplaceId, setWorkplaceId] = useState("");
   const [departmentId, setDepartmentId] = useState("");
@@ -84,10 +124,19 @@ export default function RestaurantPlanningPage() {
 
   const [demand, setDemand] = useState<WeeklyDemandDay[]>([]);
   const [proposal, setProposal] = useState<WeeklyProposalLine[]>([]);
+  const [existingRestaurantShifts, setExistingRestaurantShifts] = useState<
+    ExistingRestaurantShift[]
+  >([]);
 
   const [loadingDemand, setLoadingDemand] = useState(false);
   const [loadingProposal, setLoadingProposal] = useState(false);
+  const [loadingSavedProposal, setLoadingSavedProposal] = useState(false);
+  const [loadingExistingShifts, setLoadingExistingShifts] = useState(false);
+  const [loadingAssignment, setLoadingAssignment] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [hasLoadedContext, setHasLoadedContext] = useState(false);
+  const [hasLoadedWeek, setHasLoadedWeek] = useState(false);
 
   const weekDays = useMemo<WeekDay[]>(
     () =>
@@ -100,7 +149,7 @@ export default function RestaurantPlanningPage() {
   );
 
   const canSubmit = useMemo(() => {
-    return workplaceId.trim() && departmentId.trim();
+    return workplaceId.trim() !== "" && departmentId.trim() !== "";
   }, [workplaceId, departmentId]);
 
   const demandSummary = useMemo(() => {
@@ -111,13 +160,159 @@ export default function RestaurantPlanningPage() {
     return groupWeeklyProposalByService(proposal);
   }, [proposal]);
 
+  const existingCoverageSummary = useMemo(() => {
+    return groupExistingShiftsByService(existingRestaurantShifts);
+  }, [existingRestaurantShifts]);
+
+  const pendingProposalSummary = useMemo(() => {
+    return groupRemainingProposalByService(proposal, existingRestaurantShifts);
+  }, [proposal, existingRestaurantShifts]);
+
+  const missingRules = useMemo(() => {
+    return demand.filter((d) => d.status === "MISSING_RULE");
+  }, [demand]);
+
   useEffect(() => {
     void loadWorkplaces();
   }, []);
 
   useEffect(() => {
+    const raw = window.localStorage.getItem(CONTEXT_STORAGE_KEY);
+
+    if (!raw) {
+      setHasLoadedContext(true);
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as {
+        workplaceId?: string;
+        departmentId?: string;
+        currentWeekStart?: string;
+      };
+
+      setWorkplaceId(parsed.workplaceId ?? "");
+      setDepartmentId(parsed.departmentId ?? "");
+
+      if (parsed.currentWeekStart) {
+        setCurrentWeekStart(new Date(parsed.currentWeekStart));
+      }
+    } catch {
+      window.localStorage.removeItem(CONTEXT_STORAGE_KEY);
+    } finally {
+      setHasLoadedContext(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedContext) return;
+
+    const payload = {
+      workplaceId,
+      departmentId,
+      currentWeekStart: currentWeekStart.toISOString(),
+    };
+
+    window.localStorage.setItem(CONTEXT_STORAGE_KEY, JSON.stringify(payload));
+  }, [hasLoadedContext, workplaceId, departmentId, currentWeekStart]);
+
+  useEffect(() => {
+    if (!hasLoadedContext) return;
+
+    setHasLoadedWeek(false);
+
+    const key = getWeekStorageKey(currentWeekStart);
+    const raw = window.localStorage.getItem(key);
+
+    setDemand([]);
+    setError(null);
+
+    if (!raw) {
+      setBreakfastCovers(EMPTY_WEEK_VALUES);
+      setLunchCovers(EMPTY_WEEK_VALUES);
+      setDinnerCovers(EMPTY_WEEK_VALUES);
+      setHasLoadedWeek(true);
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as {
+        breakfastCovers?: CoversByDay;
+        lunchCovers?: CoversByDay;
+        dinnerCovers?: CoversByDay;
+      };
+
+      setBreakfastCovers(parsed.breakfastCovers ?? EMPTY_WEEK_VALUES);
+      setLunchCovers(parsed.lunchCovers ?? EMPTY_WEEK_VALUES);
+      setDinnerCovers(parsed.dinnerCovers ?? EMPTY_WEEK_VALUES);
+    } catch {
+      window.localStorage.removeItem(key);
+      setBreakfastCovers(EMPTY_WEEK_VALUES);
+      setLunchCovers(EMPTY_WEEK_VALUES);
+      setDinnerCovers(EMPTY_WEEK_VALUES);
+    } finally {
+      setHasLoadedWeek(true);
+    }
+  }, [currentWeekStart, hasLoadedContext]);
+
+  useEffect(() => {
+    if (!hasLoadedWeek) return;
+
+    const key = getWeekStorageKey(currentWeekStart);
+    const payload = {
+      breakfastCovers,
+      lunchCovers,
+      dinnerCovers,
+    };
+
+    window.localStorage.setItem(key, JSON.stringify(payload));
+  }, [
+    hasLoadedWeek,
+    currentWeekStart,
+    breakfastCovers,
+    lunchCovers,
+    dinnerCovers,
+  ]);
+
+  useEffect(() => {
+    if (!hasLoadedContext) return;
+    if (workplaceId) return;
+    if (workplaces.length === 0) return;
+
+    setWorkplaceId(workplaces[0].id);
+  }, [hasLoadedContext, workplaceId, workplaces]);
+
+  useEffect(() => {
+    if (!hasLoadedContext) return;
+
+    if (!workplaceId) {
+      setDepartments([]);
+      setDepartmentId("");
+      return;
+    }
+
     void loadDepartments(workplaceId);
-  }, [workplaceId]);
+  }, [workplaceId, hasLoadedContext]);
+
+  useEffect(() => {
+    if (!hasLoadedContext) return;
+    if (!workplaceId || !departmentId) {
+      setProposal([]);
+      setExistingRestaurantShifts([]);
+      return;
+    }
+
+    void loadSavedProposal({
+      workplaceId,
+      departmentId,
+      weekStart: currentWeekStart,
+    });
+    void loadExistingRestaurantShifts({
+      workplaceId,
+      departmentId,
+      weekStart: currentWeekStart,
+    });
+  }, [hasLoadedContext, workplaceId, departmentId, currentWeekStart]);
 
   async function loadWorkplaces() {
     try {
@@ -153,11 +348,6 @@ export default function RestaurantPlanningPage() {
     try {
       setError(null);
 
-      if (!selectedWorkplaceId) {
-        setDepartments([]);
-        return;
-      }
-
       const response = await fetch(
         `/api/departments?workplaceId=${encodeURIComponent(selectedWorkplaceId)}`,
         {
@@ -171,16 +361,166 @@ export default function RestaurantPlanningPage() {
 
       const data = (await response.json()) as DepartmentOption[];
 
-      setDepartments(
-        [...data]
-          .filter((item) => item.id && item.name)
-          .sort((a, b) => a.name.localeCompare(b.name, "es"))
-      );
+      const sorted = [...data]
+        .filter((item) => item.id && item.name)
+        .sort((a, b) => a.name.localeCompare(b.name, "es"));
+
+      setDepartments(sorted);
+
+      setDepartmentId((prev) => {
+        if (!prev) return "";
+        const exists = sorted.some((department) => department.id === prev);
+        return exists ? prev : "";
+      });
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Ha ocurrido un error inesperado."
       );
       setDepartments([]);
+      setDepartmentId("");
+    }
+  }
+
+async function handleDeleteGeneratedShifts() {
+  const res = await fetch("/api/planificacion/restaurante/borrar-turnos", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+  workplaceId,
+  departmentId,
+  weekStart: currentWeekStart,
+}),
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    alert(data.error ?? "Error borrando turnos");
+    return;
+  }
+
+  await loadExistingRestaurantShifts({
+    workplaceId,
+    departmentId,
+    weekStart: currentWeekStart,
+  });
+
+  alert(`Turnos borrados: ${data.deleted}`);
+}
+
+  async function loadSavedProposal(params: {
+    workplaceId: string;
+    departmentId: string;
+    weekStart: Date;
+  }) {
+    try {
+      setLoadingSavedProposal(true);
+      setError(null);
+
+      const query = new URLSearchParams({
+        workplaceId: params.workplaceId,
+        departmentId: params.departmentId,
+        weekStart: params.weekStart.toISOString(),
+      });
+
+      const response = await fetch(
+        `/api/planificacion/restaurante/propuesta?${query.toString()}`,
+        {
+          method: "GET",
+          cache: "no-store",
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Error cargando propuesta guardada");
+      }
+
+      const shifts = Array.isArray(data.shifts) ? data.shifts : [];
+
+      setProposal(
+        (shifts as Array<{
+  serviceType: ServiceType;
+  workAreaId: string;
+  shiftMasterId: string;
+  startAt: string;
+  endAt: string;
+  employeesNeeded: number;
+}>).map((line) => ({
+  date: toInputDate(new Date(line.startAt)),
+  serviceType: line.serviceType,
+  workAreaId: line.workAreaId,
+  shiftMasterId: line.shiftMasterId,
+  startAt: line.startAt,
+  endAt: line.endAt,
+  employeesNeeded: line.employeesNeeded,
+}))
+      );
+    } catch (err) {
+      setProposal([]);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Error cargando propuesta guardada"
+      );
+    } finally {
+      setLoadingSavedProposal(false);
+    }
+  }
+
+  async function loadExistingRestaurantShifts(params: {
+    workplaceId: string;
+    departmentId: string;
+    weekStart: Date;
+  }) {
+    try {
+      setLoadingExistingShifts(true);
+      setError(null);
+
+      const startAt = startOfDay(params.weekStart);
+      const endAt = startOfDay(addDays(params.weekStart, 7));
+      const query = new URLSearchParams({
+        workplaceId: params.workplaceId,
+        departmentId: params.departmentId,
+        startAt: startAt.toISOString(),
+        endAt: endAt.toISOString(),
+      });
+
+      const response = await fetch(`/api/shifts?${query.toString()}`, {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      const data = (await response.json()) as {
+        shifts?: ExistingRestaurantShift[];
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(data.error || "Error cargando turnos existentes");
+      }
+
+      const shifts = Array.isArray(data.shifts) ? data.shifts : [];
+
+      setExistingRestaurantShifts(
+        shifts.filter(
+          (shift) =>
+            shift.shiftMaster?.type === "RESTAURANTE" &&
+            getShiftServiceTypes(shift).length > 0
+        )
+      );
+    } catch (err) {
+      setExistingRestaurantShifts([]);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Error cargando turnos existentes"
+      );
+    } finally {
+      setLoadingExistingShifts(false);
     }
   }
 
@@ -200,6 +540,7 @@ export default function RestaurantPlanningPage() {
             },
             body: JSON.stringify({
               workplaceId,
+              departmentId,
               date: toInputDate(day.date),
               breakfastCovers: breakfastCovers[day.key],
               lunchCovers: lunchCovers[day.key],
@@ -273,6 +614,140 @@ export default function RestaurantPlanningPage() {
     }
   }
 
+  async function handleApplyProposal() {
+    setError(null);
+
+    try {
+      if (!workplaceId || !departmentId) {
+        setError("Selecciona centro y departamento");
+        return;
+      }
+
+      const saveRes = await fetch("/api/planificacion/restaurante/propuesta", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          workplaceId,
+          departmentId,
+          weekStart: currentWeekStart,
+          shifts: proposal.map((line) => ({
+  serviceType: line.serviceType,
+  workAreaId: line.workAreaId,
+  shiftMasterId: line.shiftMasterId,
+  startAt: line.startAt,
+  endAt: line.endAt,
+  employeesNeeded: line.employeesNeeded,
+})),
+        }),
+      });
+
+      const saveData = await saveRes.json();
+
+      if (!saveRes.ok) {
+        setError(saveData.error || "Error guardando propuesta");
+        return;
+      }
+
+      await loadSavedProposal({
+        workplaceId,
+        departmentId,
+        weekStart: currentWeekStart,
+      });
+
+      alert("Propuesta guardada correctamente");
+    } catch (err) {
+      console.error(err);
+      setError("Error guardando propuesta");
+    }
+  }
+
+  async function handleAutoAssignShifts() {
+    setError(null);
+    setLoadingAssignment(true);
+
+    try {
+      if (!workplaceId || !departmentId) {
+        setError("Selecciona centro y departamento");
+        return;
+      }
+
+      if (!proposal.length) {
+        setError("Primero genera una propuesta");
+        return;
+      }
+
+      const saveRes = await fetch("/api/planificacion/restaurante/propuesta", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          workplaceId,
+          departmentId,
+          weekStart: currentWeekStart,
+          shifts: proposal.map((line) => ({
+  serviceType: line.serviceType,
+  workAreaId: line.workAreaId,
+  shiftMasterId: line.shiftMasterId,
+  startAt: line.startAt,
+  endAt: line.endAt,
+  employeesNeeded: line.employeesNeeded,
+})),
+        }),
+      });
+
+      const saveData = await saveRes.json();
+
+      if (!saveRes.ok) {
+        setError(saveData.error || "Error guardando propuesta");
+        return;
+      }
+
+      const assignRes = await fetch("/api/planificacion/restaurante/asignar", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          workplaceId,
+          departmentId,
+          weekStart: currentWeekStart,
+        }),
+      });
+
+      const assignData = await assignRes.json();
+
+      if (!assignRes.ok) {
+        setError(assignData.error || "Error asignando turnos");
+        return;
+      }
+
+      await loadSavedProposal({
+        workplaceId,
+        departmentId,
+        weekStart: currentWeekStart,
+      });
+      await loadExistingRestaurantShifts({
+        workplaceId,
+        departmentId,
+        weekStart: currentWeekStart,
+      });
+
+      alert(
+        `Asignación completada. Ya cubiertos: ${
+          assignData.coveredByExisting ?? 0
+        }. Creados: ${assignData.created}. Sin asignar: ${assignData.unassigned}.`
+      );
+    } catch (err) {
+      console.error(err);
+      setError("Error en la asignación automática");
+    } finally {
+      setLoadingAssignment(false);
+    }
+  }
+
   function updateCovers(
     service: ServiceType,
     dayKey: DayKey,
@@ -294,6 +769,9 @@ export default function RestaurantPlanningPage() {
   }
 
   function resetWeekValues() {
+    const key = getWeekStorageKey(currentWeekStart);
+    window.localStorage.removeItem(key);
+
     setBreakfastCovers(EMPTY_WEEK_VALUES);
     setLunchCovers(EMPTY_WEEK_VALUES);
     setDinnerCovers(EMPTY_WEEK_VALUES);
@@ -304,23 +782,14 @@ export default function RestaurantPlanningPage() {
 
   function goToPreviousWeek() {
     setCurrentWeekStart((prev) => addDays(prev, -7));
-    setDemand([]);
-    setProposal([]);
-    setError(null);
   }
 
   function goToNextWeek() {
     setCurrentWeekStart((prev) => addDays(prev, 7));
-    setDemand([]);
-    setProposal([]);
-    setError(null);
   }
 
   function goToCurrentWeek() {
     setCurrentWeekStart(getStartOfWeek(new Date()));
-    setDemand([]);
-    setProposal([]);
-    setError(null);
   }
 
   return (
@@ -336,6 +805,13 @@ export default function RestaurantPlanningPage() {
         </div>
 
         <div className="toolbar">
+          <Link
+            href="/planificacion/restaurante/reglas"
+            className="toolbar-button ghost"
+          >
+            Configurar ratios
+          </Link>
+
           <button
             type="button"
             className="toolbar-button secondary"
@@ -366,7 +842,8 @@ export default function RestaurantPlanningPage() {
         <div>
           <span className="week-range-label">Semana de planificación</span>
           <strong className="week-range-value">
-            {formatLongDate(weekDays[0].date)} — {formatLongDate(weekDays[6].date)}
+            {formatLongDate(weekDays[0].date)} —{" "}
+            {formatLongDate(weekDays[6].date)}
           </strong>
         </div>
 
@@ -391,7 +868,8 @@ export default function RestaurantPlanningPage() {
           <div>
             <h2 className="filters-title">Contexto operativo</h2>
             <p className="filters-subtitle">
-              Indicamos el centro y el departamento para generar la propuesta semanal.
+              Indicamos el centro y el departamento para generar la propuesta
+              semanal.
             </p>
           </div>
 
@@ -456,7 +934,9 @@ export default function RestaurantPlanningPage() {
           {weekDays.map((day) => (
             <div key={day.key} className="planner-day-header">
               <span className="planner-day-name">{day.label}</span>
-              <span className="planner-day-date">{formatDayNumber(day.date)}</span>
+              <span className="planner-day-date">
+                {formatDayNumber(day.date)}
+              </span>
             </div>
           ))}
 
@@ -503,11 +983,117 @@ export default function RestaurantPlanningPage() {
         >
           {loadingProposal ? "Generando..." : "Generar propuesta semanal"}
         </button>
+
+        <button
+          type="button"
+          onClick={handleApplyProposal}
+          disabled={!proposal.length}
+          className="toolbar-button ghost"
+        >
+          Guardar propuesta
+        </button>
+
+        <button
+          type="button"
+          onClick={handleAutoAssignShifts}
+          disabled={!proposal.length || loadingAssignment}
+          className="toolbar-button primary"
+        >
+          {loadingAssignment
+            ? "Asignando..."
+            : "Asignar empleados automáticamente"}
+        </button>
+                
+        <button
+  type="button"
+  onClick={handleDeleteGeneratedShifts}
+  disabled={!canSubmit}
+  className="toolbar-button ghost"
+>
+  Borrar turnos generados
+</button>
+     
       </div>
+   
+      {loadingSavedProposal ? (
+        <div className="state-card">
+          <p>Cargando propuesta guardada...</p>
+        </div>
+      ) : null}
 
       {error ? (
         <div className="state-card error">
           <p>{error}</p>
+        </div>
+      ) : null}
+
+      {missingRules.length > 0 ? (
+        <div
+          className="state-card"
+          style={{ background: "#fff7ed", borderColor: "#fed7aa" }}
+        >
+          <p style={{ color: "#9a3412", fontWeight: 600 }}>
+            Faltan ratios configurados para algunos servicios
+          </p>
+        </div>
+      ) : null}
+
+      {canSubmit ? (
+        <div className="planner-card">
+          <div className="section-header">
+            <div>
+              <h2 className="filters-title">Turnos ya en cuadrante</h2>
+              <p className="filters-subtitle">
+                Cobertura real existente antes de completar la planificación.
+              </p>
+            </div>
+          </div>
+
+          {loadingExistingShifts ? (
+            <div className="inline-state">Cargando turnos existentes...</div>
+          ) : (
+            <>
+              <div className="planner-grid planner-grid-results">
+                <div className="planner-corner">Servicio</div>
+
+                {weekDays.map((day) => (
+                  <div
+                    key={`existing-${day.key}`}
+                    className="planner-day-header"
+                  >
+                    <span className="planner-day-name">{day.label}</span>
+                    <span className="planner-day-date">
+                      {formatDayNumber(day.date)}
+                    </span>
+                  </div>
+                ))}
+
+                <ResultRow
+                  title="Desayunos"
+                  weekDays={weekDays}
+                  values={proposalOrDemandValues(
+                    existingCoverageSummary.BREAKFAST
+                  )}
+                />
+
+                <ResultRow
+                  title="Almuerzos"
+                  weekDays={weekDays}
+                  values={proposalOrDemandValues(existingCoverageSummary.LUNCH)}
+                />
+
+                <ResultRow
+                  title="Cenas"
+                  weekDays={weekDays}
+                  values={proposalOrDemandValues(
+                    existingCoverageSummary.DINNER
+                  )}
+                />
+              </div>
+
+              <ExistingShiftList shifts={existingRestaurantShifts} />
+            </>
+          )}
         </div>
       ) : null}
 
@@ -528,7 +1114,9 @@ export default function RestaurantPlanningPage() {
             {weekDays.map((day) => (
               <div key={`demand-${day.key}`} className="planner-day-header">
                 <span className="planner-day-name">{day.label}</span>
-                <span className="planner-day-date">{formatDayNumber(day.date)}</span>
+                <span className="planner-day-date">
+                  {formatDayNumber(day.date)}
+                </span>
               </div>
             ))}
 
@@ -570,7 +1158,9 @@ export default function RestaurantPlanningPage() {
             {weekDays.map((day) => (
               <div key={`proposal-${day.key}`} className="planner-day-header">
                 <span className="planner-day-name">{day.label}</span>
-                <span className="planner-day-date">{formatDayNumber(day.date)}</span>
+                <span className="planner-day-date">
+                  {formatDayNumber(day.date)}
+                </span>
               </div>
             ))}
 
@@ -590,6 +1180,50 @@ export default function RestaurantPlanningPage() {
               title="Cenas"
               weekDays={weekDays}
               values={proposalOrDemandValues(proposalSummary.DINNER)}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {proposal.length > 0 ? (
+        <div className="planner-card">
+          <div className="section-header">
+            <div>
+              <h2 className="filters-title">Pendiente de asignar</h2>
+              <p className="filters-subtitle">
+                Propuesta total menos turnos ya existentes en el cuadrante.
+              </p>
+            </div>
+          </div>
+
+          <div className="planner-grid planner-grid-results">
+            <div className="planner-corner">Servicio</div>
+
+            {weekDays.map((day) => (
+              <div key={`pending-${day.key}`} className="planner-day-header">
+                <span className="planner-day-name">{day.label}</span>
+                <span className="planner-day-date">
+                  {formatDayNumber(day.date)}
+                </span>
+              </div>
+            ))}
+
+            <ResultRow
+              title="Desayunos"
+              weekDays={weekDays}
+              values={proposalOrDemandValues(pendingProposalSummary.BREAKFAST)}
+            />
+
+            <ResultRow
+              title="Almuerzos"
+              weekDays={weekDays}
+              values={proposalOrDemandValues(pendingProposalSummary.LUNCH)}
+            />
+
+            <ResultRow
+              title="Cenas"
+              weekDays={weekDays}
+              values={proposalOrDemandValues(pendingProposalSummary.DINNER)}
             />
           </div>
         </div>
@@ -650,6 +1284,10 @@ export default function RestaurantPlanningPage() {
           font-weight: 600;
           cursor: pointer;
           transition: transform 0.15s ease, opacity 0.15s ease;
+          text-decoration: none;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
         }
 
         .toolbar-button:hover {
@@ -816,6 +1454,17 @@ export default function RestaurantPlanningPage() {
 
         .planner-card {
           overflow-x: auto;
+        }
+
+        .planner-card > .section-header {
+          padding: 16px;
+          border-bottom: 1px solid #e2e8f0;
+        }
+
+        .inline-state {
+          padding: 16px;
+          color: #64748b;
+          font-size: 13px;
         }
 
         .planner-grid {
@@ -1023,6 +1672,136 @@ function ResultRow({ title, weekDays, values }: ResultRowProps) {
   );
 }
 
+type ExistingShiftListProps = {
+  shifts: ExistingRestaurantShift[];
+};
+
+function ExistingShiftList({ shifts }: ExistingShiftListProps) {
+  if (shifts.length === 0) {
+    return (
+      <div className="existing-empty">
+        No hay turnos de restaurante creados en el cuadrante para esta semana.
+        <style jsx>{`
+          .existing-empty {
+            border-top: 1px solid #e2e8f0;
+            padding: 14px 16px;
+            color: #64748b;
+            font-size: 13px;
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  const sorted = [...shifts].sort(
+    (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime()
+  );
+
+  return (
+    <div className="existing-list">
+      {sorted.map((shift) => (
+        <div key={shift.id} className="existing-line">
+          <div className="existing-main">
+            <strong>
+              {shift.employee.firstName} {shift.employee.lastName}
+            </strong>
+            <div className="existing-main-right">
+              <span>
+                {formatShortDateTime(shift.startAt)} - {formatTime(shift.endAt)}
+              </span>
+              <span
+                className={`existing-origin ${
+                  isAutoAssignedRestaurantShift(shift) ? "auto" : "manual"
+                }`}
+              >
+                {isAutoAssignedRestaurantShift(shift) ? "Propuesta" : "Usuario"}
+              </span>
+            </div>
+          </div>
+          <div className="existing-meta">
+            <span>{getShiftServiceTypes(shift).map(formatService).join(", ")}</span>
+            <span>{shift.workArea?.name ?? "Sin área"}</span>
+            <span>{shift.shiftMaster?.name ?? "Turno manual"}</span>
+          </div>
+        </div>
+      ))}
+
+      <style jsx>{`
+        .existing-list {
+          border-top: 1px solid #e2e8f0;
+          padding: 12px 16px 16px;
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+          gap: 8px;
+        }
+
+        .existing-line {
+          border: 1px solid #e2e8f0;
+          border-radius: 8px;
+          padding: 10px;
+          background: #f8fafc;
+          min-width: 0;
+        }
+
+        .existing-main {
+          display: flex;
+          justify-content: space-between;
+          gap: 8px;
+          font-size: 12px;
+          color: #0f172a;
+        }
+
+        .existing-main-right {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 4px;
+        }
+
+        .existing-origin {
+          border-radius: 999px;
+          padding: 1px 6px;
+          font-size: 9px;
+          font-weight: 800;
+          border: 1px solid transparent;
+          line-height: 1.2;
+          text-transform: uppercase;
+          white-space: nowrap;
+        }
+
+        .existing-origin.auto {
+          color: #92400e;
+          background: #fffbeb;
+          border-color: #fcd34d;
+        }
+
+        .existing-origin.manual {
+          color: #1e3a8a;
+          background: #eff6ff;
+          border-color: #bfdbfe;
+        }
+
+        .existing-main strong,
+        .existing-main span,
+        .existing-meta span {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .existing-meta {
+          margin-top: 6px;
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 6px;
+          font-size: 11px;
+          color: #64748b;
+        }
+      `}</style>
+    </div>
+  );
+}
+
 function getStartOfWeek(date: Date) {
   const result = new Date(date);
   const day = result.getDay();
@@ -1037,6 +1816,12 @@ function getStartOfWeek(date: Date) {
 function addDays(date: Date, days: number) {
   const result = new Date(date);
   result.setDate(result.getDate() + days);
+  return result;
+}
+
+function startOfDay(date: Date) {
+  const result = new Date(date);
+  result.setHours(0, 0, 0, 0);
   return result;
 }
 
@@ -1067,13 +1852,154 @@ function sumWeekValues(values: CoversByDay) {
   return Object.values(values).reduce((acc, value) => acc + value, 0);
 }
 
+function groupExistingShiftsByService(shifts: ExistingRestaurantShift[]) {
+  const result = createEmptyServiceDayMap();
+
+  for (const shift of shifts) {
+    const dayKey = getDayKeyFromIsoDate(toInputDate(new Date(shift.startAt)));
+
+    for (const serviceType of getShiftServiceTypes(shift)) {
+      result[serviceType][dayKey] = (result[serviceType][dayKey] ?? 0) + 1;
+    }
+  }
+
+  return result;
+}
+
+function groupRemainingProposalByService(
+  proposal: WeeklyProposalLine[],
+  existingShifts: ExistingRestaurantShift[]
+) {
+  const result = createEmptyServiceDayMap();
+
+  for (const line of proposal) {
+    const dayKey = getDayKeyFromIsoDate(line.date);
+    const existingCoverage = countExistingCoverageForProposalLine(
+      line,
+      existingShifts
+    );
+    const remaining = Math.max(line.employeesNeeded - existingCoverage, 0);
+
+    if (remaining > 0) {
+      result[line.serviceType][dayKey] =
+        (result[line.serviceType][dayKey] ?? 0) + remaining;
+    }
+  }
+
+  return result;
+}
+
+function createEmptyServiceDayMap(): Record<
+  ServiceType,
+  Partial<Record<DayKey, number>>
+> {
+  return {
+    BREAKFAST: {},
+    LUNCH: {},
+    DINNER: {},
+  };
+}
+
+function countExistingCoverageForProposalLine(
+  line: WeeklyProposalLine,
+  existingShifts: ExistingRestaurantShift[]
+) {
+  return existingShifts.filter((shift) => {
+    if (shift.workAreaId !== line.workAreaId) return false;
+    if (toInputDate(new Date(shift.startAt)) !== line.date) return false;
+
+    return getShiftServiceTypes(shift).includes(line.serviceType);
+  }).length;
+}
+
+function getShiftServiceTypes(shift: ExistingRestaurantShift): ServiceType[] {
+  const explicitService = getAutoAssignedServiceFromNotes(shift.notes);
+  if (explicitService) {
+    return [explicitService];
+  }
+
+  const services: ServiceType[] = [];
+
+  if (shift.shiftMaster?.coversBreakfast) services.push("BREAKFAST");
+  if (shift.shiftMaster?.coversLunch) services.push("LUNCH");
+  if (shift.shiftMaster?.coversDinner) services.push("DINNER");
+
+  return services;
+}
+
+function getAutoAssignedServiceFromNotes(notes: string | null): ServiceType | null {
+  if (!notes) return null;
+  const normalized = notes.toLocaleLowerCase("es");
+
+  if (
+    !normalized.includes("asignación automática") &&
+    !normalized.includes("asignacion automatica")
+  ) {
+    return null;
+  }
+
+  if (normalized.includes("servicio: desayuno")) return "BREAKFAST";
+  if (normalized.includes("servicio: almuerzo")) return "LUNCH";
+  if (normalized.includes("servicio: cena")) return "DINNER";
+
+  return null;
+}
+
+function formatService(serviceType: ServiceType) {
+  if (serviceType === "BREAKFAST") return "Desayuno";
+  if (serviceType === "LUNCH") return "Almuerzo";
+  return "Cena";
+}
+
+function formatShortDateTime(value: string) {
+  const date = new Date(value);
+  return `${formatDayNumber(date)} ${formatTime(value)}`;
+}
+
+function formatTime(value: string) {
+  return new Intl.DateTimeFormat("es-ES", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(value));
+}
+
+function isAutoAssignedRestaurantShift(shift: ExistingRestaurantShift) {
+  const notes = (shift.notes ?? "").toLocaleLowerCase("es");
+  return (
+    notes.includes("asignacion automatica") ||
+    notes.includes("asignación automática")
+  );
+}
+
 function groupWeeklyDemandByService(lines: WeeklyDemandDay[]) {
   return {
     BREAKFAST: toDayMap(
-      lines.filter((line) => line.serviceType === "BREAKFAST")
+      lines
+        .filter(
+          (line) => line.serviceType === "BREAKFAST" && line.status === "OK"
+        )
+        .map((line) => ({
+          date: line.date,
+          employeesNeeded: line.employeesNeeded,
+        }))
     ),
-    LUNCH: toDayMap(lines.filter((line) => line.serviceType === "LUNCH")),
-    DINNER: toDayMap(lines.filter((line) => line.serviceType === "DINNER")),
+    LUNCH: toDayMap(
+      lines
+        .filter((line) => line.serviceType === "LUNCH" && line.status === "OK")
+        .map((line) => ({
+          date: line.date,
+          employeesNeeded: line.employeesNeeded,
+        }))
+    ),
+    DINNER: toDayMap(
+      lines
+        .filter((line) => line.serviceType === "DINNER" && line.status === "OK")
+        .map((line) => ({
+          date: line.date,
+          employeesNeeded: line.employeesNeeded,
+        }))
+    ),
   };
 }
 
@@ -1107,13 +2033,15 @@ function groupWeeklyProposalByService(lines: WeeklyProposalLine[]) {
 }
 
 function toDayMap(
-  lines: Array<{ date: string; employeesNeeded: number }>
+  lines: Array<{ date: string; employeesNeeded: number | null }>
 ): Partial<Record<DayKey, number>> {
   const result: Partial<Record<DayKey, number>> = {};
 
   for (const line of lines) {
+    if (line.employeesNeeded === null) continue;
+
     const dayKey = getDayKeyFromIsoDate(line.date);
-    result[dayKey] = line.employeesNeeded;
+    result[dayKey] = (result[dayKey] ?? 0) + line.employeesNeeded;
   }
 
   return result;

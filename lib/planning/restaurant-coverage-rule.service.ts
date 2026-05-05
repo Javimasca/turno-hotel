@@ -6,7 +6,7 @@ type CreateRestaurantCoverageRuleInput = {
   serviceType: RestaurantServiceType;
   ratioCoversPerEmployee: number;
   validFrom: Date;
-  validTo: Date;
+  validTo: Date | null;
   isActive?: boolean;
 };
 
@@ -15,7 +15,7 @@ type UpdateRestaurantCoverageRuleInput = {
   serviceType?: RestaurantServiceType;
   ratioCoversPerEmployee?: number;
   validFrom?: Date;
-  validTo?: Date;
+  validTo?: Date | null;
   isActive?: boolean;
 };
 
@@ -49,9 +49,9 @@ export const restaurantCoverageRuleService = {
       throw new Error("El ratio debe ser mayor que 0");
     }
 
-    if (input.validFrom > input.validTo) {
-      throw new Error("La fecha de inicio no puede ser posterior a la fecha de fin");
-    }
+   if (input.validTo && input.validFrom > input.validTo) {
+  throw new Error("La fecha de inicio no puede ser posterior a la fecha de fin");
+}
 
     if (input.isActive !== false) {
       const overlappingRule =
@@ -96,9 +96,9 @@ export const restaurantCoverageRuleService = {
       throw new Error("El ratio debe ser mayor que 0");
     }
 
-    if (nextValidFrom > nextValidTo) {
-      throw new Error("La fecha de inicio no puede ser posterior a la fecha de fin");
-    }
+    if (nextValidTo && nextValidFrom > nextValidTo) {
+  throw new Error("La fecha de inicio no puede ser posterior a la fecha de fin");
+}
 
     if (nextIsActive) {
       const overlappingRule =
