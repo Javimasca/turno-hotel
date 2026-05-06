@@ -1,11 +1,41 @@
 -- CreateEnum
-CREATE TYPE "EmployeeWorkAreaLevel" AS ENUM ('TRAINING', 'STANDARD', 'EXPERT');
+DO $$ BEGIN
+    CREATE TYPE "RestaurantServiceType" AS ENUM ('BREAKFAST', 'LUNCH', 'DINNER');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
 -- CreateEnum
-CREATE TYPE "AvailabilityBlockType" AS ENUM ('DAY_OFF', 'UNAVAILABLE');
+DO $$ BEGIN
+    CREATE TYPE "EmployeeWorkAreaLevel" AS ENUM ('TRAINING', 'STANDARD', 'EXPERT');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+-- CreateEnum
+DO $$ BEGIN
+    CREATE TYPE "AvailabilityBlockType" AS ENUM ('DAY_OFF', 'UNAVAILABLE');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+-- CreateTable
+CREATE TABLE IF NOT EXISTS "RestaurantCoverageRule" (
+    "id" TEXT NOT NULL,
+    "workplaceId" TEXT NOT NULL,
+    "serviceType" "RestaurantServiceType" NOT NULL,
+    "ratioCoversPerEmployee" INTEGER NOT NULL,
+    "validFrom" TIMESTAMP(3) NOT NULL,
+    "validTo" TIMESTAMP(3),
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "RestaurantCoverageRule_pkey" PRIMARY KEY ("id")
+);
 
 -- AlterTable
-ALTER TABLE "RestaurantCoverageRule" ALTER COLUMN "validTo" DROP NOT NULL;
+ALTER TABLE IF EXISTS "RestaurantCoverageRule" ALTER COLUMN "validTo" DROP NOT NULL;
 
 -- CreateTable
 CREATE TABLE "work_area_positions" (
@@ -120,8 +150,14 @@ CREATE INDEX "EmployeeAvailabilityBlock_employeeId_date_idx" ON "EmployeeAvailab
 -- CreateIndex
 CREATE INDEX "EmployeeAvailabilityBlock_date_idx" ON "EmployeeAvailabilityBlock"("date");
 
+-- CreateIndex
+CREATE INDEX IF NOT EXISTS "RestaurantCoverageRule_workplaceId_serviceType_validFrom_validTo_idx" ON "RestaurantCoverageRule"("workplaceId", "serviceType", "validFrom", "validTo");
+
 -- AddForeignKey
 ALTER TABLE "work_area_positions" ADD CONSTRAINT "work_area_positions_workAreaId_fkey" FOREIGN KEY ("workAreaId") REFERENCES "work_areas"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "RestaurantCoverageRule" ADD CONSTRAINT "RestaurantCoverageRule_workplaceId_fkey" FOREIGN KEY ("workplaceId") REFERENCES "workplaces"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "employee_work_areas" ADD CONSTRAINT "employee_work_areas_employeeId_fkey" FOREIGN KEY ("employeeId") REFERENCES "employees"("id") ON DELETE CASCADE ON UPDATE CASCADE;
