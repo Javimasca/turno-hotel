@@ -18,6 +18,8 @@ type ShiftProposal = {
   startAt: Date;
   endAt: Date;
   employeesNeeded: number;
+  covers: number;
+  ratioCoversPerEmployee: number;
 };
 
 export const restaurantShiftGeneratorService = {
@@ -71,6 +73,8 @@ export const restaurantShiftGeneratorService = {
             shiftMaster.crossesMidnight
           ),
           employeesNeeded: line.employeesNeeded as number,
+          covers: line.covers,
+          ratioCoversPerEmployee: line.ratioCoversPerEmployee as number,
         };
       })
       .filter((line): line is ShiftProposal => line !== null);

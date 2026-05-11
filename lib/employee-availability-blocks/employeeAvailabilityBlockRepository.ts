@@ -7,6 +7,7 @@ export const employeeAvailabilityBlockRepository = {
     startAt?: Date | null;
     endAt?: Date | null;
     type?: "DAY_OFF" | "UNAVAILABLE";
+    source?: "MANUAL" | "AUTO_PROPOSED";
     reason?: string | null;
   }) {
     return prisma.employeeAvailabilityBlock.create({

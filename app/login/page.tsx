@@ -12,7 +12,7 @@ function LoginPageContent() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const nextUrl = searchParams.get("next") || "/turnos";
+  const nextUrl = searchParams.get("next") || "/";
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();

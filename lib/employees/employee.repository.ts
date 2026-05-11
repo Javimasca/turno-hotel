@@ -1,5 +1,15 @@
 import { prisma } from "@/lib/prisma";
 
+type WeeklyDaysOffMode = "AUTO" | "FIXED";
+type Weekday =
+  | "MONDAY"
+  | "TUESDAY"
+  | "WEDNESDAY"
+  | "THURSDAY"
+  | "FRIDAY"
+  | "SATURDAY"
+  | "SUNDAY";
+
 type EmployeeListFilters = {
   isActive?: boolean;
   search?: string;
@@ -15,6 +25,9 @@ type CreateEmployeeInput = {
   phone?: string | null;
   photoUrl?: string | null;
   directManagerEmployeeId?: string | null;
+  weeklyDaysOffMode?: WeeklyDaysOffMode;
+  fixedDayOff1?: Weekday | null;
+  fixedDayOff2?: Weekday | null;
   workplaceId?: string | null;
   departmentId?: string | null;
   workAreaIds?: string[];
@@ -30,6 +43,9 @@ type UpdateEmployeeInput = {
   phone?: string | null;
   photoUrl?: string | null;
   directManagerEmployeeId?: string | null;
+  weeklyDaysOffMode?: WeeklyDaysOffMode;
+  fixedDayOff1?: Weekday | null;
+  fixedDayOff2?: Weekday | null;
   workplaceId?: string | null;
   departmentId?: string | null;
   workAreaIds?: string[];
@@ -351,6 +367,9 @@ export const employeeRepository = {
         phone: data.phone ?? null,
         photoUrl: data.photoUrl ?? null,
         directManagerEmployeeId: data.directManagerEmployeeId ?? null,
+        weeklyDaysOffMode: data.weeklyDaysOffMode ?? "AUTO",
+        fixedDayOff1: data.fixedDayOff1 ?? null,
+        fixedDayOff2: data.fixedDayOff2 ?? null,
         isActive: data.isActive ?? true,
         ...(data.workplaceId
           ? {
@@ -487,6 +506,15 @@ export const employeeRepository = {
         ...(data.photoUrl !== undefined ? { photoUrl: data.photoUrl } : {}),
         ...(data.directManagerEmployeeId !== undefined
           ? { directManagerEmployeeId: data.directManagerEmployeeId }
+          : {}),
+        ...(data.weeklyDaysOffMode !== undefined
+          ? { weeklyDaysOffMode: data.weeklyDaysOffMode }
+          : {}),
+        ...(data.fixedDayOff1 !== undefined
+          ? { fixedDayOff1: data.fixedDayOff1 }
+          : {}),
+        ...(data.fixedDayOff2 !== undefined
+          ? { fixedDayOff2: data.fixedDayOff2 }
           : {}),
         ...(typeof data.isActive === "boolean"
           ? { isActive: data.isActive }

@@ -13,6 +13,9 @@ type NewEmployeePageProps = {
     email?: string;
     phone?: string;
     directManagerEmployeeId?: string;
+    weeklyDaysOffMode?: string;
+    fixedDayOff1?: string;
+    fixedDayOff2?: string;
     workplaceId?: string;
     departmentId?: string;
     isActive?: string;
@@ -31,6 +34,10 @@ export default async function NewEmployeePage({
   const email = params?.email?.trim() || "";
   const phone = params?.phone?.trim() || "";
   const directManagerEmployeeId = params?.directManagerEmployeeId?.trim() || "";
+  const weeklyDaysOffMode =
+    params?.weeklyDaysOffMode?.trim() === "FIXED" ? "FIXED" : "AUTO";
+  const fixedDayOff1 = params?.fixedDayOff1?.trim() || "";
+  const fixedDayOff2 = params?.fixedDayOff2?.trim() || "";
   const workplaceId = params?.workplaceId?.trim() || "";
   const departmentId = params?.departmentId?.trim() || "";
   const isActive = params?.isActive !== "false";
@@ -190,6 +197,54 @@ export default async function NewEmployeePage({
                   {manager.firstName} {manager.lastName} · {manager.code}
                 </option>
               ))}
+            </select>
+          </div>
+
+          <div className="form-field">
+            <label htmlFor="weeklyDaysOffMode">Descanso semanal</label>
+            <select
+              id="weeklyDaysOffMode"
+              name="weeklyDaysOffMode"
+              defaultValue={weeklyDaysOffMode}
+            >
+              <option value="AUTO">Automático</option>
+              <option value="FIXED">Fijo semanal</option>
+            </select>
+          </div>
+
+          <div className="form-field">
+            <label htmlFor="fixedDayOff1">Primer día libre fijo</label>
+            <select
+              id="fixedDayOff1"
+              name="fixedDayOff1"
+              defaultValue={fixedDayOff1}
+            >
+              <option value="">Sin asignar</option>
+              <option value="MONDAY">Lunes</option>
+              <option value="TUESDAY">Martes</option>
+              <option value="WEDNESDAY">Miércoles</option>
+              <option value="THURSDAY">Jueves</option>
+              <option value="FRIDAY">Viernes</option>
+              <option value="SATURDAY">Sábado</option>
+              <option value="SUNDAY">Domingo</option>
+            </select>
+          </div>
+
+          <div className="form-field">
+            <label htmlFor="fixedDayOff2">Segundo día libre fijo</label>
+            <select
+              id="fixedDayOff2"
+              name="fixedDayOff2"
+              defaultValue={fixedDayOff2}
+            >
+              <option value="">Sin asignar</option>
+              <option value="MONDAY">Lunes</option>
+              <option value="TUESDAY">Martes</option>
+              <option value="WEDNESDAY">Miércoles</option>
+              <option value="THURSDAY">Jueves</option>
+              <option value="FRIDAY">Viernes</option>
+              <option value="SATURDAY">Sábado</option>
+              <option value="SUNDAY">Domingo</option>
             </select>
           </div>
 

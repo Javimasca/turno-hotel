@@ -56,6 +56,7 @@ export async function POST(req: NextRequest) {
   const startAt = body.startAt ?? null;
   const endAt = body.endAt ?? null;
   const type = body.type ?? "DAY_OFF";
+  const source = body.source === "AUTO_PROPOSED" ? "AUTO_PROPOSED" : "MANUAL";
   const reason = body.reason ?? null;
 
   let normalizedDate: DateOnly;

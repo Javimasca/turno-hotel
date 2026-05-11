@@ -4,6 +4,14 @@ import { employeeAvailabilityBlockService } from "@/lib/employee-availability-bl
 
 type UserRole = "ADMIN" | "MANAGER" | "EMPLOYEE";
 type RestaurantServiceType = "BREAKFAST" | "LUNCH" | "DINNER";
+type Weekday =
+  | "MONDAY"
+  | "TUESDAY"
+  | "WEDNESDAY"
+  | "THURSDAY"
+  | "FRIDAY"
+  | "SATURDAY"
+  | "SUNDAY";
 
 type RequestContext = {
   userId: string;
@@ -22,6 +30,15 @@ type PositionSlot = {
   id: string;
   name: string;
   assigned: number;
+};
+
+type PlanningEmployee = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  weeklyDaysOffMode: "AUTO" | "FIXED";
+  fixedDayOff1: Weekday | null;
+  fixedDayOff2: Weekday | null;
 };
 
 type ExistingShiftForCoverage = {
@@ -94,6 +111,8 @@ export const restaurantShiftAssignmentService = {
         startAt: Date;
         endAt: Date;
         employeesNeeded: number;
+        covers: number;
+        ratioCoversPerEmployee: number | null;
       }
     >();
 
@@ -128,6 +147,8 @@ export const restaurantShiftAssignmentService = {
         startAt: row.startAt,
         endAt: row.endAt,
         employeesNeeded: 1,
+        covers: row.covers,
+        ratioCoversPerEmployee: row.ratioCoversPerEmployee,
       });
     }
 
@@ -173,6 +194,67 @@ export const restaurantShiftAssignmentService = {
       workload.minutes += minutesBetween(shift.startAt, shift.endAt);
       workloadMap.set(shift.employeeId, workload);
     }
+
+    const weeklyEmployees = await prisma.employee.findMany({
+      where: {
+        isActive: true,
+        employeeDepartments: {
+          some: {
+            departmentId: input.departmentId,
+          },
+        },
+        employeeWorkAreas: {
+          some: {
+            isActive: true,
+            validFrom: {
+              lte: endDate,
+            },
+            OR: [
+              { validTo: null },
+              {
+                validTo: {
+                  gte: startDate,
+                },
+              },
+            ],
+          },
+        },
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        weeklyDaysOffMode: true,
+        fixedDayOff1: true,
+        fixedDayOff2: true,
+      },
+      orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+    });
+
+    const plannedDaysOff = buildPlannedDaysOff({
+      employees: weeklyEmployees,
+      startDate,
+      groupedProposals: Array.from(grouped.values()),
+      manualDaysOff: await getManualDaysOffByEmployee(
+        weeklyEmployees.map((employee) => employee.id),
+        startDate,
+        endDate
+      ),
+    });
+
+    await persistProposedDaysOff({
+      plannedDaysOff,
+      startDate,
+      endDate,
+      employeeIds: weeklyEmployees.map((employee) => employee.id),
+    });
+
+    addExtraStaffToTightestRatios({
+      groupedProposals: Array.from(grouped.values()),
+      weeklyEmployees,
+      plannedDaysOff,
+      existingShifts,
+    });
 
     let created = 0;
     let skipped = 0;
@@ -276,6 +358,11 @@ export const restaurantShiftAssignmentService = {
         if (assignedForThisProposal >= remainingNeeded) break;
 
         const employeeId = candidate.id;
+        if (isPlannedDayOff(plannedDaysOff, employeeId, proposal.startAt)) {
+          skipped += 1;
+          continue;
+        }
+
         const busySlots = busyMap.get(employeeId) ?? [];
 
         const hasConflict = busySlots.some((slot) =>
@@ -559,4 +646,340 @@ function isSameLocalDay(a: Date, b: Date) {
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate()
   );
+}
+
+type GroupedProposal = {
+  workplaceId: string;
+  departmentId: string;
+  workAreaId: string;
+  serviceType: RestaurantServiceType;
+  startAt: Date;
+  endAt: Date;
+  employeesNeeded: number;
+  covers: number;
+  ratioCoversPerEmployee: number | null;
+};
+
+const WEEKDAYS: Weekday[] = [
+  "MONDAY",
+  "TUESDAY",
+  "WEDNESDAY",
+  "THURSDAY",
+  "FRIDAY",
+  "SATURDAY",
+  "SUNDAY",
+];
+
+const DAY_OFF_PAIRS: Array<[Weekday, Weekday]> = [
+  ["MONDAY", "TUESDAY"],
+  ["TUESDAY", "WEDNESDAY"],
+  ["WEDNESDAY", "THURSDAY"],
+  ["THURSDAY", "FRIDAY"],
+  ["FRIDAY", "SATURDAY"],
+  ["SATURDAY", "SUNDAY"],
+  ["SUNDAY", "MONDAY"],
+];
+
+function buildPlannedDaysOff(input: {
+  employees: PlanningEmployee[];
+  startDate: Date;
+  groupedProposals: GroupedProposal[];
+  manualDaysOff: Map<string, Set<string>>;
+}) {
+  const dayDemand = new Map<Weekday, number>();
+  const pairUsage = new Map<string, number>();
+  const result = new Map<string, Set<string>>();
+
+  for (const weekday of WEEKDAYS) {
+    dayDemand.set(weekday, 0);
+  }
+
+  for (const proposal of input.groupedProposals) {
+    const weekday = getWeekday(proposal.startAt);
+    dayDemand.set(
+      weekday,
+      (dayDemand.get(weekday) ?? 0) + Math.max(proposal.employeesNeeded, 0)
+    );
+  }
+
+  for (const employee of input.employees) {
+    const manualDays = input.manualDaysOff.get(employee.id) ?? new Set<string>();
+
+    if (manualDays.size >= 2) {
+      result.set(employee.id, new Set(manualDays));
+      continue;
+    }
+
+    if (manualDays.size === 1 && employee.weeklyDaysOffMode !== "FIXED") {
+      const [manualDayKey] = Array.from(manualDays);
+      const pair = choosePairContainingManualDay(
+        getWeekday(new Date(`${manualDayKey}T12:00:00.000`)),
+        dayDemand,
+        pairUsage
+      );
+
+      pairUsage.set(pair.join("|"), (pairUsage.get(pair.join("|")) ?? 0) + 1);
+      result.set(
+        employee.id,
+        new Set(
+          pair.map((weekday) =>
+            toDateKey(dateForWeekday(input.startDate, weekday))
+          )
+        )
+      );
+      continue;
+    }
+
+    const pair =
+      employee.weeklyDaysOffMode === "FIXED" &&
+      employee.fixedDayOff1 &&
+      employee.fixedDayOff2
+        ? normalizeDayOffPair(employee.fixedDayOff1, employee.fixedDayOff2)
+        : chooseAutomaticDayOffPair(dayDemand, pairUsage);
+
+    pairUsage.set(pair.join("|"), (pairUsage.get(pair.join("|")) ?? 0) + 1);
+
+    result.set(
+      employee.id,
+      new Set(pair.map((weekday) => toDateKey(dateForWeekday(input.startDate, weekday))))
+    );
+  }
+
+  return result;
+}
+
+async function getManualDaysOffByEmployee(
+  employeeIds: string[],
+  startDate: Date,
+  endDate: Date
+) {
+  const result = new Map<string, Set<string>>();
+
+  if (!employeeIds.length) {
+    return result;
+  }
+
+  const blocks = await prisma.employeeAvailabilityBlock.findMany({
+    where: {
+      employeeId: {
+        in: employeeIds,
+      },
+      type: "DAY_OFF",
+      
+      date: {
+        gte: startDate,
+        lt: endDate,
+      },
+    },
+    select: {
+      employeeId: true,
+      date: true,
+    },
+  });
+
+  for (const block of blocks) {
+    const days = result.get(block.employeeId) ?? new Set<string>();
+    days.add(toDateKey(block.date));
+    result.set(block.employeeId, days);
+  }
+
+  return result;
+}
+
+async function persistProposedDaysOff(input: {
+  plannedDaysOff: Map<string, Set<string>>;
+  startDate: Date;
+  endDate: Date;
+  employeeIds: string[];
+}) {
+  if (!input.employeeIds.length) {
+    return;
+  }
+
+  await prisma.employeeAvailabilityBlock.deleteMany({
+    where: {
+      employeeId: {
+        in: input.employeeIds,
+      },
+      date: {
+        gte: input.startDate,
+        lt: input.endDate,
+      },
+    },
+  });
+
+  const rows = Array.from(input.plannedDaysOff.entries()).flatMap(
+    ([employeeId, days]) =>
+      Array.from(days).map((dateKey) => ({
+        employeeId,
+        date: new Date(`${dateKey}T12:00:00.000Z`),
+        type: "DAY_OFF" as const,
+        
+        reason: "Libre propuesto",
+      }))
+  );
+
+  if (!rows.length) {
+    return;
+  }
+
+  await prisma.employeeAvailabilityBlock.createMany({
+    data: rows,
+    skipDuplicates: false,
+  });
+}
+
+function addExtraStaffToTightestRatios(input: {
+  groupedProposals: GroupedProposal[];
+  weeklyEmployees: PlanningEmployee[];
+  plannedDaysOff: Map<string, Set<string>>;
+  existingShifts: ExistingShiftForCoverage[];
+}) {
+  const proposalsByDate = new Map<string, GroupedProposal[]>();
+
+  for (const proposal of input.groupedProposals) {
+    const key = toDateKey(proposal.startAt);
+    const day = proposalsByDate.get(key) ?? [];
+    day.push(proposal);
+    proposalsByDate.set(key, day);
+  }
+
+  for (const [dateKey, proposals] of proposalsByDate) {
+    const availableEmployees = input.weeklyEmployees.filter(
+      (employee) => !input.plannedDaysOff.get(employee.id)?.has(dateKey)
+    );
+    const alreadyBusy = new Set(
+      input.existingShifts
+        .filter((shift) => toDateKey(shift.startAt) === dateKey)
+        .map((shift) => shift.employeeId)
+    );
+    const minimumNeeded = proposals.reduce(
+      (sum, proposal) => sum + proposal.employeesNeeded,
+      0
+    );
+    let extraAvailable = Math.max(
+      availableEmployees.length - alreadyBusy.size - minimumNeeded,
+      0
+    );
+
+    while (extraAvailable > 0) {
+      const tightest = [...proposals]
+        .filter(
+          (proposal) =>
+            proposal.covers > 0 &&
+            proposal.ratioCoversPerEmployee &&
+            proposal.ratioCoversPerEmployee > 0
+        )
+        .sort((a, b) => compareServiceTension(b, a))[0];
+
+      if (!tightest) return;
+
+      const currentRatio = tightest.covers / Math.max(tightest.employeesNeeded, 1);
+      if (currentRatio <= (tightest.ratioCoversPerEmployee ?? 0)) {
+        return;
+      }
+
+      tightest.employeesNeeded += 1;
+      extraAvailable -= 1;
+    }
+  }
+}
+
+function compareServiceTension(a: GroupedProposal, b: GroupedProposal) {
+  const aObjective = a.ratioCoversPerEmployee ?? 0;
+  const bObjective = b.ratioCoversPerEmployee ?? 0;
+  const aTension = aObjective > 0 ? a.covers / Math.max(a.employeesNeeded, 1) / aObjective : 0;
+  const bTension = bObjective > 0 ? b.covers / Math.max(b.employeesNeeded, 1) / bObjective : 0;
+
+  if (aTension !== bTension) return aTension - bTension;
+  if (a.covers !== b.covers) return a.covers - b.covers;
+  if (a.employeesNeeded !== b.employeesNeeded) {
+    return b.employeesNeeded - a.employeesNeeded;
+  }
+
+  return servicePriority(b.serviceType) - servicePriority(a.serviceType);
+}
+
+function servicePriority(serviceType: RestaurantServiceType) {
+  if (serviceType === "BREAKFAST") return 3;
+  if (serviceType === "LUNCH") return 2;
+  return 1;
+}
+
+function chooseAutomaticDayOffPair(
+  dayDemand: Map<Weekday, number>,
+  pairUsage: Map<string, number>
+) {
+  return [...DAY_OFF_PAIRS].sort((a, b) => {
+    const aDemand = (dayDemand.get(a[0]) ?? 0) + (dayDemand.get(a[1]) ?? 0);
+    const bDemand = (dayDemand.get(b[0]) ?? 0) + (dayDemand.get(b[1]) ?? 0);
+
+    if (aDemand !== bDemand) return aDemand - bDemand;
+
+    const aUsage = pairUsage.get(a.join("|")) ?? 0;
+    const bUsage = pairUsage.get(b.join("|")) ?? 0;
+    if (aUsage !== bUsage) return aUsage - bUsage;
+
+    return 0;
+  })[0];
+}
+
+function choosePairContainingManualDay(
+  weekday: Weekday,
+  dayDemand: Map<Weekday, number>,
+  pairUsage: Map<string, number>
+) {
+  return DAY_OFF_PAIRS.filter((pair) => pair.includes(weekday)).sort((a, b) => {
+    const aDemand = (dayDemand.get(a[0]) ?? 0) + (dayDemand.get(a[1]) ?? 0);
+    const bDemand = (dayDemand.get(b[0]) ?? 0) + (dayDemand.get(b[1]) ?? 0);
+
+    if (aDemand !== bDemand) return aDemand - bDemand;
+
+    const aUsage = pairUsage.get(a.join("|")) ?? 0;
+    const bUsage = pairUsage.get(b.join("|")) ?? 0;
+    return aUsage - bUsage;
+  })[0];
+}
+
+function normalizeDayOffPair(day1: Weekday, day2: Weekday): [Weekday, Weekday] {
+  const existing = DAY_OFF_PAIRS.find(
+    (pair) =>
+      (pair[0] === day1 && pair[1] === day2) ||
+      (pair[0] === day2 && pair[1] === day1)
+  );
+
+  return existing ?? [day1, day2];
+}
+
+function isPlannedDayOff(
+  plannedDaysOff: Map<string, Set<string>>,
+  employeeId: string,
+  date: Date
+) {
+  return plannedDaysOff.get(employeeId)?.has(toDateKey(date)) ?? false;
+}
+
+function getWeekday(date: Date): Weekday {
+  const day = date.getDay();
+  if (day === 1) return "MONDAY";
+  if (day === 2) return "TUESDAY";
+  if (day === 3) return "WEDNESDAY";
+  if (day === 4) return "THURSDAY";
+  if (day === 5) return "FRIDAY";
+  if (day === 6) return "SATURDAY";
+  return "SUNDAY";
+}
+
+function dateForWeekday(weekStart: Date, weekday: Weekday) {
+  const date = startOfDay(weekStart);
+  date.setDate(date.getDate() + WEEKDAYS.indexOf(weekday));
+  return date;
+}
+
+function toDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
 }

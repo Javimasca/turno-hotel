@@ -36,6 +36,24 @@ const EMPTY_FORM: RuleFormState = {
   isActive: true,
 };
 
+async function readJsonResponse<T>(res: Response): Promise<T> {
+  const text = await res.text();
+
+  if (!text.trim()) {
+    if (!res.ok) {
+      throw new Error(`Respuesta vacía del servidor (${res.status})`);
+    }
+
+    return null as T;
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(text.slice(0, 180) || "Respuesta inválida del servidor");
+  }
+}
+
 export default function RestaurantCoverageRulesPage() {
   const [workplaces, setWorkplaces] = useState<WorkplaceOption[]>([]);
   const [workplaceId, setWorkplaceId] = useState("");
@@ -66,13 +84,19 @@ export default function RestaurantCoverageRulesPage() {
         cache: "no-store",
       });
 
-      const data = await res.json();
+      const data = await readJsonResponse<WorkplaceOption[] | { error?: string }>(
+        res
+      );
 
       if (!res.ok) {
-        throw new Error(data.error || "No se pudieron cargar los centros");
+        throw new Error(
+          !Array.isArray(data) && data.error
+            ? data.error
+            : "No se pudieron cargar los centros"
+        );
       }
 
-      const sorted = [...(data as WorkplaceOption[])]
+      const sorted = [...(Array.isArray(data) ? data : [])]
         .filter((item) => item.id && item.name)
         .sort((a, b) => a.name.localeCompare(b.name, "es"));
 
@@ -109,13 +133,19 @@ export default function RestaurantCoverageRulesPage() {
         }
       );
 
-      const data = await res.json();
+      const data = await readJsonResponse<
+        RestaurantCoverageRule[] | { error?: string }
+      >(res);
 
       if (!res.ok) {
-        throw new Error(data.error || "No se pudieron cargar las reglas");
+        throw new Error(
+          !Array.isArray(data) && data.error
+            ? data.error
+            : "No se pudieron cargar las reglas"
+        );
       }
 
-      setRules(data as RestaurantCoverageRule[]);
+      setRules(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error");
       setRules([]);
@@ -170,10 +200,16 @@ export default function RestaurantCoverageRulesPage() {
         }),
       });
 
-      const data = await res.json();
+      const data = await readJsonResponse<RestaurantCoverageRule | { error?: string }>(
+        res
+      );
 
       if (!res.ok) {
-        throw new Error(data.error || "No se pudo guardar la regla");
+        throw new Error(
+          "error" in data && data.error
+            ? data.error
+            : "No se pudo guardar la regla"
+        );
       }
 
       closeModal();
@@ -204,10 +240,16 @@ export default function RestaurantCoverageRulesPage() {
         }
       );
 
-      const data = await res.json();
+      const data = await readJsonResponse<RestaurantCoverageRule | { error?: string }>(
+        res
+      );
 
       if (!res.ok) {
-        throw new Error(data.error || "No se pudo eliminar la regla");
+        throw new Error(
+          "error" in data && data.error
+            ? data.error
+            : "No se pudo eliminar la regla"
+        );
       }
 
       if (editingRule?.id === rule.id) {

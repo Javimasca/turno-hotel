@@ -64,6 +64,9 @@ export async function POST(request: NextRequest) {
     let email: string | null | undefined = undefined;
     let phone: string | null | undefined = undefined;
     let directManagerEmployeeId: string | null | undefined = undefined;
+    let weeklyDaysOffMode: "AUTO" | "FIXED" | undefined = undefined;
+    let fixedDayOff1: string | null | undefined = undefined;
+    let fixedDayOff2: string | null | undefined = undefined;
     let workplaceId: string | null | undefined = undefined;
     let departmentId: string | null | undefined = undefined;
     let isActive: boolean | undefined = undefined;
@@ -78,6 +81,9 @@ export async function POST(request: NextRequest) {
       email = body.email ?? undefined;
       phone = body.phone ?? undefined;
       directManagerEmployeeId = body.directManagerEmployeeId ?? undefined;
+      weeklyDaysOffMode = body.weeklyDaysOffMode ?? undefined;
+      fixedDayOff1 = body.fixedDayOff1 ?? undefined;
+      fixedDayOff2 = body.fixedDayOff2 ?? undefined;
       workplaceId = body.workplaceId ?? undefined;
       departmentId = body.departmentId ?? undefined;
       isActive =
@@ -98,6 +104,18 @@ export async function POST(request: NextRequest) {
       const managerValue = formData.get("directManagerEmployeeId")?.toString();
       directManagerEmployeeId =
         typeof managerValue === "string" ? managerValue : undefined;
+
+      const weeklyDaysOffModeValue = formData.get("weeklyDaysOffMode")?.toString();
+      weeklyDaysOffMode =
+        weeklyDaysOffModeValue === "FIXED" ? "FIXED" : "AUTO";
+
+      const fixedDayOff1Value = formData.get("fixedDayOff1")?.toString();
+      fixedDayOff1 =
+        typeof fixedDayOff1Value === "string" ? fixedDayOff1Value : undefined;
+
+      const fixedDayOff2Value = formData.get("fixedDayOff2")?.toString();
+      fixedDayOff2 =
+        typeof fixedDayOff2Value === "string" ? fixedDayOff2Value : undefined;
 
       const workplaceValue = formData.get("workplaceId")?.toString();
       workplaceId =
@@ -151,6 +169,9 @@ export async function POST(request: NextRequest) {
       email,
       phone,
       directManagerEmployeeId,
+      weeklyDaysOffMode,
+      fixedDayOff1,
+      fixedDayOff2,
       workplaceId,
       departmentId,
       isActive,

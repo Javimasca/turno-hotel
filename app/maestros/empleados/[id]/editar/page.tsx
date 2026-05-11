@@ -16,6 +16,9 @@ type FormState = {
   phone: string
   photoUrl: string
   directManagerEmployeeId: string
+  weeklyDaysOffMode: 'AUTO' | 'FIXED'
+  fixedDayOff1: string
+  fixedDayOff2: string
   workplaceId: string
   departmentId: string
   isActive: string
@@ -30,6 +33,9 @@ type EmployeeResponse = {
   phone: string | null
   photoUrl?: string | null
   directManagerEmployeeId: string | null
+  weeklyDaysOffMode?: 'AUTO' | 'FIXED'
+  fixedDayOff1?: string | null
+  fixedDayOff2?: string | null
   isActive: boolean
   employeeWorkplaces?: Array<{
     workplaceId: string
@@ -109,6 +115,16 @@ type WorkplacesApiResponse =
       data?: Workplace[]
     }
 
+const WEEKDAY_OPTIONS = [
+  { value: 'MONDAY', label: 'Lunes' },
+  { value: 'TUESDAY', label: 'Martes' },
+  { value: 'WEDNESDAY', label: 'Miércoles' },
+  { value: 'THURSDAY', label: 'Jueves' },
+  { value: 'FRIDAY', label: 'Viernes' },
+  { value: 'SATURDAY', label: 'Sábado' },
+  { value: 'SUNDAY', label: 'Domingo' },
+]
+
 function isEmployeeResponse(value: unknown): value is EmployeeResponse {
   if (!value || typeof value !== 'object') {
     return false
@@ -162,6 +178,9 @@ export default function EditEmployeePage({ params }: Props) {
     phone: '',
     photoUrl: '',
     directManagerEmployeeId: '',
+    weeklyDaysOffMode: 'AUTO',
+    fixedDayOff1: '',
+    fixedDayOff2: '',
     workplaceId: '',
     departmentId: '',
     isActive: 'true',
@@ -274,6 +293,9 @@ export default function EditEmployeePage({ params }: Props) {
           phone: employeeJson.phone ?? '',
           photoUrl: employeeJson.photoUrl ?? '',
           directManagerEmployeeId: employeeJson.directManagerEmployeeId ?? '',
+          weeklyDaysOffMode: employeeJson.weeklyDaysOffMode ?? 'AUTO',
+          fixedDayOff1: employeeJson.fixedDayOff1 ?? '',
+          fixedDayOff2: employeeJson.fixedDayOff2 ?? '',
           workplaceId: employeeJson.employeeWorkplaces?.[0]?.workplaceId ?? '',
           departmentId: employeeJson.employeeDepartments?.[0]?.departmentId ?? '',
           isActive: employeeJson.isActive ? 'true' : 'false',
@@ -379,6 +401,11 @@ export default function EditEmployeePage({ params }: Props) {
           email: form.email,
           phone: form.phone,
           directManagerEmployeeId: form.directManagerEmployeeId || null,
+          weeklyDaysOffMode: form.weeklyDaysOffMode,
+          fixedDayOff1:
+            form.weeklyDaysOffMode === 'FIXED' ? form.fixedDayOff1 : null,
+          fixedDayOff2:
+            form.weeklyDaysOffMode === 'FIXED' ? form.fixedDayOff2 : null,
           workplaceId: form.workplaceId || null,
           departmentId: form.departmentId || null,
           workAreaIds: selectedWorkAreas.map((item) => item.workAreaId),
@@ -694,6 +721,71 @@ export default function EditEmployeePage({ params }: Props) {
                     ))}
                 </select>
               </div>
+
+              <div className="form-field">
+                <label>Descanso semanal</label>
+                <select
+                  value={form.weeklyDaysOffMode}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      weeklyDaysOffMode:
+                        e.target.value === 'FIXED' ? 'FIXED' : 'AUTO',
+                      fixedDayOff1:
+                        e.target.value === 'FIXED' ? f.fixedDayOff1 : '',
+                      fixedDayOff2:
+                        e.target.value === 'FIXED' ? f.fixedDayOff2 : '',
+                    }))
+                  }
+                >
+                  <option value="AUTO">Automático</option>
+                  <option value="FIXED">Fijo semanal</option>
+                </select>
+              </div>
+
+              {form.weeklyDaysOffMode === 'FIXED' ? (
+                <>
+                  <div className="form-field">
+                    <label>Primer día libre</label>
+                    <select
+                      value={form.fixedDayOff1}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          fixedDayOff1: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">Seleccionar</option>
+                      {WEEKDAY_OPTIONS.map((day) => (
+                        <option key={day.value} value={day.value}>
+                          {day.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-field">
+                    <label>Segundo día libre</label>
+                    <select
+                      value={form.fixedDayOff2}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          fixedDayOff2: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">Seleccionar</option>
+                      {WEEKDAY_OPTIONS.map((day) => (
+                        <option key={day.value} value={day.value}>
+                          {day.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              ) : null}
 
               <div className="form-field">
                 <label>Hotel / centro</label>

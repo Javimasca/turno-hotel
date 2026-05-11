@@ -152,6 +152,7 @@ type EmployeeAvailabilityBlock = {
   startAt: string | null;
   endAt: string | null;
   type: "DAY_OFF" | "UNAVAILABLE";
+  source: "MANUAL" | "AUTO_PROPOSED";
   reason: string | null;
 };
 
@@ -2161,8 +2162,14 @@ const hasWarning = Boolean(dayShift && dayHourlyAbsence);
 ) : null}
 
 {dayOff ? (
-  <div className="day-off-card">
-    <div className="day-off-label">Libre</div>
+  <div
+    className={`day-off-card ${
+      dayOff.source === "AUTO_PROPOSED" ? "proposed" : "manual"
+    }`}
+  >
+    <div className="day-off-label">
+      {dayOff.source === "AUTO_PROPOSED" ? "Libre propuesta" : "Libre"}
+    </div>
     <div className="day-off-name">
       {dayOff.reason || "Día libre"}
     </div>
@@ -2383,6 +2390,25 @@ const hasWarning = Boolean(dayShift && dayHourlyAbsence);
   flex-direction: column;
   justify-content: center;
   overflow: hidden;
+}
+
+.day-off-card.proposed {
+  border-color: #c4b5fd;
+  background: repeating-linear-gradient(
+    135deg,
+    #f5f3ff 0,
+    #f5f3ff 8px,
+    #ede9fe 8px,
+    #ede9fe 16px
+  );
+}
+
+.day-off-card.proposed .day-off-label {
+  color: #6d28d9;
+}
+
+.day-off-card.proposed .day-off-name {
+  color: #4c1d95;
 }
 
 .day-off-label {
@@ -2786,11 +2812,6 @@ function getRestaurantServicesFromShift(
 ): RestaurantServiceType[] {
   if (!shift.shiftMaster || shift.shiftMaster.type !== "RESTAURANTE") {
     return [];
-  }
-
-  const explicitService = getAutoAssignedServiceFromNotes(shift.notes);
-  if (explicitService) {
-    return [explicitService];
   }
 
   const services: RestaurantServiceType[] = [];

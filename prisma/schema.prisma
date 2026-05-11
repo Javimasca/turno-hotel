@@ -75,6 +75,21 @@ enum EmployeeWorkAreaLevel {
   EXPERT
 }
 
+enum WeeklyDaysOffMode {
+  AUTO
+  FIXED
+}
+
+enum Weekday {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
 model Workplace {
   id          String   @id @default(cuid())
   code        String   @unique
@@ -272,6 +287,9 @@ model Employee {
   phone                   String?
   photoUrl                String?
   directManagerEmployeeId String?
+  weeklyDaysOffMode       WeeklyDaysOffMode @default(AUTO)
+  fixedDayOff1            Weekday?
+  fixedDayOff2            Weekday?
   isActive                Boolean  @default(true)
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
@@ -542,6 +560,8 @@ model RestaurantShiftProposal {
   date          DateTime
   service       RestaurantServiceType
   requiredStaff Int
+  covers        Int                   @default(0)
+  ratioCoversPerEmployee Int?
   startAt       DateTime?
   endAt         DateTime?
   createdAt     DateTime              @default(now())
@@ -573,6 +593,7 @@ model EmployeeAvailabilityBlock {
   endAt      DateTime?
 
   type       AvailabilityBlockType @default(UNAVAILABLE)
+  source     AvailabilityBlockSource @default(MANUAL)
 
   reason     String?
 
@@ -586,4 +607,9 @@ model EmployeeAvailabilityBlock {
 enum AvailabilityBlockType {
   DAY_OFF
   UNAVAILABLE
+}
+
+enum AvailabilityBlockSource {
+  MANUAL
+  AUTO_PROPOSED
 }

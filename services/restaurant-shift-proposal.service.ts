@@ -9,6 +9,8 @@ type ProposalShift = {
   startAt: string;
   endAt: string;
   employeesNeeded: number;
+  covers?: number;
+  ratioCoversPerEmployee?: number | null;
 };
 
 export async function saveRestaurantShiftProposal(params: {
@@ -58,6 +60,12 @@ export async function saveRestaurantShiftProposal(params: {
       date: new Date(shift.startAt),
       service: shift.serviceType,
       requiredStaff: 1,
+      covers: Math.max(0, Math.floor(Number(shift.covers ?? 0))),
+      ratioCoversPerEmployee:
+        typeof shift.ratioCoversPerEmployee === "number" &&
+        !Number.isNaN(shift.ratioCoversPerEmployee)
+          ? Math.floor(shift.ratioCoversPerEmployee)
+          : null,
       startAt: new Date(shift.startAt),
       endAt: new Date(shift.endAt),
     }))
@@ -100,6 +108,8 @@ export async function getRestaurantShiftProposalsByWeek(params: {
       startAt: string;
       endAt: string;
       employeesNeeded: number;
+      covers: number;
+      ratioCoversPerEmployee: number | null;
     }
   >();
 
@@ -121,6 +131,9 @@ export async function getRestaurantShiftProposalsByWeek(params: {
 
     if (existing) {
       existing.employeesNeeded += 1;
+      existing.covers = Math.max(existing.covers, row.covers);
+      existing.ratioCoversPerEmployee =
+        existing.ratioCoversPerEmployee ?? row.ratioCoversPerEmployee;
       continue;
     }
 
@@ -131,6 +144,8 @@ export async function getRestaurantShiftProposalsByWeek(params: {
       startAt: row.startAt.toISOString(),
       endAt: row.endAt.toISOString(),
       employeesNeeded: 1,
+      covers: row.covers,
+      ratioCoversPerEmployee: row.ratioCoversPerEmployee,
     });
   }
 

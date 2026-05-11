@@ -24,7 +24,13 @@ export async function POST(req: NextRequest) {
     !shift?.startAt ||
     !shift?.endAt ||
     typeof shift?.employeesNeeded !== "number" ||
-    Number.isNaN(shift?.employeesNeeded)
+    Number.isNaN(shift?.employeesNeeded) ||
+    (shift?.covers !== undefined &&
+      (typeof shift.covers !== "number" || Number.isNaN(shift.covers))) ||
+    (shift?.ratioCoversPerEmployee !== undefined &&
+      shift?.ratioCoversPerEmployee !== null &&
+      (typeof shift.ratioCoversPerEmployee !== "number" ||
+        Number.isNaN(shift.ratioCoversPerEmployee)))
 );
 
 if (invalidShift) {

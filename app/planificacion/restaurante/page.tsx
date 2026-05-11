@@ -39,6 +39,8 @@ type WeeklyProposalLine = {
   startAt: string;
   endAt: string;
   employeesNeeded: number;
+  covers?: number;
+  ratioCoversPerEmployee?: number | null;
 };
 
 type ExistingRestaurantShift = {
@@ -449,6 +451,8 @@ async function handleDeleteGeneratedShifts() {
   startAt: string;
   endAt: string;
   employeesNeeded: number;
+  covers?: number;
+  ratioCoversPerEmployee?: number | null;
 }>).map((line) => ({
   date: toInputDate(new Date(line.startAt)),
   serviceType: line.serviceType,
@@ -457,6 +461,8 @@ async function handleDeleteGeneratedShifts() {
   startAt: line.startAt,
   endAt: line.endAt,
   employeesNeeded: line.employeesNeeded,
+  covers: line.covers,
+  ratioCoversPerEmployee: line.ratioCoversPerEmployee,
 }))
       );
     } catch (err) {
@@ -639,6 +645,8 @@ async function handleDeleteGeneratedShifts() {
   startAt: line.startAt,
   endAt: line.endAt,
   employeesNeeded: line.employeesNeeded,
+  covers: line.covers,
+  ratioCoversPerEmployee: line.ratioCoversPerEmployee,
 })),
         }),
       });
@@ -694,6 +702,8 @@ async function handleDeleteGeneratedShifts() {
   startAt: line.startAt,
   endAt: line.endAt,
   employeesNeeded: line.employeesNeeded,
+  covers: line.covers,
+  ratioCoversPerEmployee: line.ratioCoversPerEmployee,
 })),
         }),
       });

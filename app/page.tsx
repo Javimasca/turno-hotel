@@ -27,7 +27,7 @@ const mainAreas: {
     roles: ["ADMIN", "MANAGER"],
   },
   {
-    href: "maestros/empleados",
+    href: "/maestros/empleados",
     title: "Empleados",
     description:
       "Gestiona fichas de trabajadores, categorías, antigüedad y relaciones de responsable.",
@@ -111,18 +111,24 @@ export default function HomePage() {
             ) : null}
 
             <div className="hero-actions">
-              {canOpenPlanner ? (
-                <Link href="/turnos" className="button primary">
-                  Abrir cuadrantes
-                </Link>
-              ) : null}
+  {!isUserLoading && !user ? (
+    <Link href="/login" className="button primary">
+      Iniciar sesión
+    </Link>
+  ) : null}
 
-              {user?.isActive === true && user.role === "ADMIN" ? (
-                <Link href="/maestros/turnos" className="button secondary">
-                  Maestro de turnos
-                </Link>
-              ) : null}
-            </div>
+  {canOpenPlanner ? (
+    <Link href="/turnos" className="button primary">
+      Abrir cuadrantes
+    </Link>
+  ) : null}
+
+  {user?.isActive === true && user.role === "ADMIN" ? (
+    <Link href="/maestros/turnos" className="button secondary">
+      Maestro de turnos
+    </Link>
+  ) : null}
+</div>
           </div>
 
           <div className="hero-summary">

@@ -69,6 +69,9 @@ type CreateEmployeeInput = {
   phone?: string | null;
   photoUrl?: string | null;
   directManagerEmployeeId?: string | null;
+  weeklyDaysOffMode?: "AUTO" | "FIXED";
+  fixedDayOff1?: string | null;
+  fixedDayOff2?: string | null;
   workplaceId?: string | null;
   departmentId?: string | null;
   workAreaIds?: string[];
@@ -84,6 +87,9 @@ type UpdateEmployeeInput = {
   phone?: string | null;
   photoUrl?: string | null;
   directManagerEmployeeId?: string | null;
+  weeklyDaysOffMode?: "AUTO" | "FIXED";
+  fixedDayOff1?: string | null;
+  fixedDayOff2?: string | null;
   workplaceId?: string | null;
   departmentId?: string | null;
   workAreaIds?: string[];
@@ -113,6 +119,80 @@ function normalizeStringArray(values: string[] | undefined) {
         .filter((value): value is string => Boolean(value)),
     ),
   );
+}
+
+const WEEKDAYS = [
+  "MONDAY",
+  "TUESDAY",
+  "WEDNESDAY",
+  "THURSDAY",
+  "FRIDAY",
+  "SATURDAY",
+  "SUNDAY",
+] as const;
+
+type Weekday = (typeof WEEKDAYS)[number];
+type WeeklyDaysOffMode = "AUTO" | "FIXED";
+
+function normalizeDaysOffMode(value: string | undefined): WeeklyDaysOffMode {
+  if (value === "FIXED") return "FIXED";
+  return "AUTO";
+}
+
+function normalizeWeekday(value: string | null | undefined) {
+  if (typeof value !== "string") return null;
+  return WEEKDAYS.includes(value as Weekday) ? (value as Weekday) : null;
+}
+
+function areConsecutiveWeekdays(day1: Weekday, day2: Weekday) {
+  const firstIndex = WEEKDAYS.indexOf(day1);
+  const secondIndex = WEEKDAYS.indexOf(day2);
+
+  return (
+    (firstIndex + 1) % WEEKDAYS.length === secondIndex ||
+    (secondIndex + 1) % WEEKDAYS.length === firstIndex
+  );
+}
+
+function normalizeWeeklyDaysOff(input: {
+  weeklyDaysOffMode?: "AUTO" | "FIXED";
+  fixedDayOff1?: string | null;
+  fixedDayOff2?: string | null;
+}): {
+  weeklyDaysOffMode: WeeklyDaysOffMode;
+  fixedDayOff1: Weekday | null;
+  fixedDayOff2: Weekday | null;
+} {
+  const weeklyDaysOffMode = normalizeDaysOffMode(input.weeklyDaysOffMode);
+
+  if (weeklyDaysOffMode === "AUTO") {
+    return {
+      weeklyDaysOffMode,
+      fixedDayOff1: null,
+      fixedDayOff2: null,
+    };
+  }
+
+  const fixedDayOff1 = normalizeWeekday(input.fixedDayOff1);
+  const fixedDayOff2 = normalizeWeekday(input.fixedDayOff2);
+
+  if (!fixedDayOff1 || !fixedDayOff2) {
+    throw new Error("Selecciona los dos dÃ­as libres fijos del empleado.");
+  }
+
+  if (fixedDayOff1 === fixedDayOff2) {
+    throw new Error("Los dos dÃ­as libres fijos no pueden ser el mismo dÃ­a.");
+  }
+
+  if (!areConsecutiveWeekdays(fixedDayOff1, fixedDayOff2)) {
+    throw new Error("Los dÃ­as libres fijos deben ser consecutivos.");
+  }
+
+  return {
+    weeklyDaysOffMode,
+    fixedDayOff1,
+    fixedDayOff2,
+  };
 }
 
 export const employeeService = {
@@ -149,6 +229,11 @@ export const employeeService = {
     const directManagerEmployeeId = normalizeString(
       input.directManagerEmployeeId ?? undefined,
     );
+    const weeklyDaysOff = normalizeWeeklyDaysOff({
+      weeklyDaysOffMode: input.weeklyDaysOffMode,
+      fixedDayOff1: input.fixedDayOff1,
+      fixedDayOff2: input.fixedDayOff2,
+    });
     const workplaceId = normalizeString(input.workplaceId ?? undefined);
     const departmentId = normalizeString(input.departmentId ?? undefined);
     const workAreaIds = normalizeStringArray(input.workAreaIds);
@@ -238,6 +323,9 @@ export const employeeService = {
       phone: phone ?? null,
       photoUrl,
       directManagerEmployeeId: directManagerEmployeeId ?? null,
+      weeklyDaysOffMode: weeklyDaysOff.weeklyDaysOffMode,
+      fixedDayOff1: weeklyDaysOff.fixedDayOff1,
+      fixedDayOff2: weeklyDaysOff.fixedDayOff2,
       workplaceId: workplaceId ?? null,
       departmentId: departmentId ?? null,
       workAreaIds: workAreaIds ?? [],
@@ -288,6 +376,16 @@ export const employeeService = {
     const directManagerEmployeeId =
       input.directManagerEmployeeId !== undefined
         ? normalizeString(input.directManagerEmployeeId ?? undefined) ?? null
+        : undefined;
+    const weeklyDaysOff =
+      input.weeklyDaysOffMode !== undefined ||
+      input.fixedDayOff1 !== undefined ||
+      input.fixedDayOff2 !== undefined
+        ? normalizeWeeklyDaysOff({
+            weeklyDaysOffMode: input.weeklyDaysOffMode,
+            fixedDayOff1: input.fixedDayOff1,
+            fixedDayOff2: input.fixedDayOff2,
+          })
         : undefined;
 
     const workplaceId =
@@ -415,6 +513,13 @@ export const employeeService = {
       ...(photoUrl !== undefined ? { photoUrl } : {}),
       ...(directManagerEmployeeId !== undefined
         ? { directManagerEmployeeId }
+        : {}),
+      ...(weeklyDaysOff !== undefined
+        ? {
+            weeklyDaysOffMode: weeklyDaysOff.weeklyDaysOffMode,
+            fixedDayOff1: weeklyDaysOff.fixedDayOff1,
+            fixedDayOff2: weeklyDaysOff.fixedDayOff2,
+          }
         : {}),
       ...(workplaceId !== undefined ? { workplaceId } : {}),
       ...(departmentId !== undefined ? { departmentId } : {}),
