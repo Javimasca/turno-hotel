@@ -8,11 +8,13 @@ type CreateShiftMasterInput = {
   description?: string | null;
   workplaceId: string;
   departmentId: string;
+  workAreaId?: string | null;
   type?: ShiftMasterType;
   startMinute: number;
   endMinute: number;
   crossesMidnight?: boolean;
   isPartial?: boolean;
+  effectiveCleaningMinutes?: number | null;
   coversBreakfast?: boolean;
   coversLunch?: boolean;
   coversDinner?: boolean;
@@ -26,11 +28,13 @@ type UpdateShiftMasterInput = {
   description?: string | null;
   workplaceId?: string;
   departmentId?: string;
+  workAreaId?: string | null;
   type?: ShiftMasterType;
   startMinute?: number;
   endMinute?: number;
   crossesMidnight?: boolean;
   isPartial?: boolean;
+  effectiveCleaningMinutes?: number | null;
   coversBreakfast?: boolean;
   coversLunch?: boolean;
   coversDinner?: boolean;
@@ -84,6 +88,10 @@ export const shiftMasterService = {
     const coversDinner = input.coversDinner ?? false;
     const countsForRoomAssignment = input.countsForRoomAssignment ?? false;
     const isActive = input.isActive ?? true;
+    const effectiveCleaningMinutes = normalizeEffectiveCleaningMinutes(
+      input.effectiveCleaningMinutes,
+      type
+    );
 
     validateMinuteRange(input.startMinute, "La hora de entrada no es válida.");
     validateMinuteRange(input.endMinute, "La hora de salida no es válida.");
@@ -100,11 +108,19 @@ export const shiftMasterService = {
     });
 
     await validateWorkplaceExists(input.workplaceId);
-await validateDepartmentExists(input.departmentId);
+    await validateDepartmentExists(input.departmentId);
 await validateDepartmentBelongsToWorkplace(
   input.departmentId,
   input.workplaceId
 );
+const normalizedWorkAreaId = normalizeOptionalId(input.workAreaId);
+
+if (normalizedWorkAreaId) {
+  await validateWorkAreaBelongsToDepartment(
+    normalizedWorkAreaId,
+    input.departmentId
+  );
+}
 
 await validateUniqueShiftMasterCode({
   departmentId: input.departmentId,
@@ -121,12 +137,14 @@ const resolvedBackgroundColor = resolveShiftMasterBackgroundColor(
       description: normalizedDescription,
       workplaceId: input.workplaceId,
       departmentId: input.departmentId,
+      workAreaId: normalizedWorkAreaId,
       type,
       startMinute: input.startMinute,
       endMinute: input.endMinute,
       crossesMidnight,
       isPartial,
       backgroundColor: resolvedBackgroundColor,
+      effectiveCleaningMinutes,
       coversBreakfast,
       coversLunch,
       coversDinner,
@@ -160,12 +178,23 @@ const resolvedBackgroundColor = resolveShiftMasterBackgroundColor(
     const nextWorkplaceId = input.workplaceId ?? existingShiftMaster.workplaceId;
     const nextDepartmentId =
       input.departmentId ?? existingShiftMaster.departmentId;
+    const nextWorkAreaId =
+      input.workAreaId === undefined
+        ? existingShiftMaster.workAreaId
+        : normalizeOptionalId(input.workAreaId);
     const nextType = input.type ?? existingShiftMaster.type;
     const nextStartMinute = input.startMinute ?? existingShiftMaster.startMinute;
     const nextEndMinute = input.endMinute ?? existingShiftMaster.endMinute;
     const nextCrossesMidnight =
       input.crossesMidnight ?? existingShiftMaster.crossesMidnight;
     const nextIsPartial = input.isPartial ?? existingShiftMaster.isPartial;
+    const nextEffectiveCleaningMinutes =
+      input.effectiveCleaningMinutes === undefined
+        ? existingShiftMaster.effectiveCleaningMinutes
+        : normalizeEffectiveCleaningMinutes(
+            input.effectiveCleaningMinutes,
+            nextType
+          );
     const nextCoversBreakfast =
       input.coversBreakfast ?? existingShiftMaster.coversBreakfast;
     const nextCoversLunch =
@@ -197,6 +226,9 @@ const resolvedBackgroundColor = resolveShiftMasterBackgroundColor(
       nextDepartmentId,
       nextWorkplaceId
     );
+    if (nextWorkAreaId) {
+      await validateWorkAreaBelongsToDepartment(nextWorkAreaId, nextDepartmentId);
+    }
 
     const nextBackgroundColor =
       input.endMinute === undefined
@@ -209,12 +241,14 @@ const resolvedBackgroundColor = resolveShiftMasterBackgroundColor(
       description: nextDescription,
       workplaceId: nextWorkplaceId,
       departmentId: nextDepartmentId,
+      workAreaId: nextWorkAreaId,
       type: nextType,
       startMinute: nextStartMinute,
       endMinute: nextEndMinute,
       crossesMidnight: nextCrossesMidnight,
       isPartial: nextIsPartial,
       backgroundColor: nextBackgroundColor,
+      effectiveCleaningMinutes: nextEffectiveCleaningMinutes,
       coversBreakfast: nextCoversBreakfast,
       coversLunch: nextCoversLunch,
       coversDinner: nextCoversDinner,
@@ -288,6 +322,39 @@ function normalizeDescription(description?: string | null) {
   const normalized = description.trim();
 
   return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeOptionalId(value?: string | null) {
+  if (value == null) {
+    return null;
+  }
+
+  const normalized = value.trim();
+
+  return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeEffectiveCleaningMinutes(
+  value: number | null | undefined,
+  type: ShiftMasterType
+) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const normalized = Number(value);
+
+  if (!Number.isInteger(normalized) || normalized <= 0 || normalized > 1440) {
+    throw new Error("Los minutos efectivos de limpieza no son validos.");
+  }
+
+  if (type !== "PISOS") {
+    throw new Error(
+      "Los minutos efectivos de limpieza solo se pueden usar en turnos de tipo PISOS."
+    );
+  }
+
+  return normalized;
 }
 
 function validateMinuteRange(value: number, message: string) {
@@ -400,6 +467,28 @@ async function validateDepartmentBelongsToWorkplace(
 
   if (department.workplaceId !== workplaceId) {
     throw new Error("El departamento no pertenece al centro indicado.");
+  }
+}
+
+async function validateWorkAreaBelongsToDepartment(
+  workAreaId: string,
+  departmentId: string
+) {
+  const workArea = await prisma.workArea.findUnique({
+    where: { id: workAreaId },
+    select: { departmentId: true, isActive: true },
+  });
+
+  if (!workArea) {
+    throw new Error("El área de trabajo no existe.");
+  }
+
+  if (!workArea.isActive) {
+    throw new Error("No se puede usar un área de trabajo inactiva.");
+  }
+
+  if (workArea.departmentId !== departmentId) {
+    throw new Error("El área de trabajo no pertenece al departamento indicado.");
   }
 }
 

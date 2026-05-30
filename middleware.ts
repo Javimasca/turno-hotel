@@ -52,12 +52,8 @@ export function middleware(request: NextRequest) {
   }
 
   if (isPublicPath(pathname)) {
-    if (isAuthenticated) {
-      return NextResponse.redirect(new URL("/turnos", request.url));
-    }
-
-    return NextResponse.next();
-  }
+  return NextResponse.next();
+}
 
   if (!isAuthenticated) {
     const loginUrl = new URL("/login", request.url);

@@ -14,6 +14,13 @@ type Department = {
   name: string;
 };
 
+type WorkArea = {
+  id: string;
+  code: string;
+  name: string;
+  departmentId: string;
+};
+
 type ShiftMaster = {
   id: string;
   code: string;
@@ -21,11 +28,13 @@ type ShiftMaster = {
   description: string | null;
   workplaceId: string;
   departmentId: string;
+  workAreaId: string | null;
   type: ShiftMasterType;
   startMinute: number;
   endMinute: number;
   crossesMidnight: boolean;
   isPartial: boolean;
+  effectiveCleaningMinutes: number | null;
   coversBreakfast: boolean;
   coversLunch: boolean;
   coversDinner: boolean;
@@ -33,6 +42,7 @@ type ShiftMaster = {
   isActive: boolean;
   workplace: Workplace;
   department: Department;
+  workArea: WorkArea | null;
 };
 
 type FormState = {
@@ -41,11 +51,13 @@ type FormState = {
   description: string;
   workplaceId: string;
   departmentId: string;
+  workAreaId: string;
   type: ShiftMasterType;
   startTime: string;
   endTime: string;
   crossesMidnight: boolean;
   isPartial: boolean;
+  effectiveCleaningMinutes: string;
   coversBreakfast: boolean;
   coversLunch: boolean;
   coversDinner: boolean;
@@ -59,11 +71,13 @@ const initialForm: FormState = {
   description: "",
   workplaceId: "",
   departmentId: "",
+  workAreaId: "",
   type: "GENERAL",
   startTime: "08:00",
   endTime: "16:00",
   crossesMidnight: false,
   isPartial: false,
+  effectiveCleaningMinutes: "",
   coversBreakfast: false,
   coversLunch: false,
   coversDinner: false,
@@ -75,8 +89,10 @@ export default function ShiftMastersPage() {
   const [shiftMasters, setShiftMasters] = useState<ShiftMaster[]>([]);
   const [workplaces, setWorkplaces] = useState<Workplace[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [workAreas, setWorkAreas] = useState<WorkArea[]>([]);
   const [form, setForm] = useState<FormState>(initialForm);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isFormOpen, setIsFormOpen] = useState(false);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -87,6 +103,11 @@ export default function ShiftMastersPage() {
     return departments;
   }, [departments, form.workplaceId]);
 
+  const filteredWorkAreas = useMemo(() => {
+    if (!form.departmentId) return [];
+    return workAreas.filter((workArea) => workArea.departmentId === form.departmentId);
+  }, [workAreas, form.departmentId]);
+
   useEffect(() => {
     void loadData();
   }, []);
@@ -94,12 +115,23 @@ export default function ShiftMastersPage() {
   useEffect(() => {
     if (!form.workplaceId) {
       setDepartments([]);
-      setForm((prev) => ({ ...prev, departmentId: "" }));
+      setWorkAreas([]);
+      setForm((prev) => ({ ...prev, departmentId: "", workAreaId: "" }));
       return;
     }
 
     void loadDepartments(form.workplaceId);
   }, [form.workplaceId]);
+
+  useEffect(() => {
+    if (!form.departmentId) {
+      setWorkAreas([]);
+      setForm((prev) => ({ ...prev, workAreaId: "" }));
+      return;
+    }
+
+    void loadWorkAreas(form.departmentId);
+  }, [form.departmentId]);
 
   async function loadData() {
     try {
@@ -157,6 +189,26 @@ export default function ShiftMastersPage() {
     }
   }
 
+  async function loadWorkAreas(departmentId: string) {
+    try {
+      const response = await fetch(
+        `/api/work-areas?departmentId=${encodeURIComponent(departmentId)}&isActive=true`,
+        { cache: "no-store" }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "No se pudieron cargar las áreas.");
+      }
+
+      setWorkAreas(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error cargando áreas.");
+      setWorkAreas([]);
+    }
+  }
+
   function updateField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({
       ...prev,
@@ -189,11 +241,16 @@ export default function ShiftMastersPage() {
           description: form.description.trim() || null,
           workplaceId: form.workplaceId,
           departmentId: form.departmentId,
+          workAreaId: form.workAreaId || null,
           type: form.type,
           startMinute: timeToMinutes(form.startTime),
           endMinute: timeToMinutes(form.endTime),
           crossesMidnight: form.crossesMidnight,
           isPartial: form.isPartial,
+          effectiveCleaningMinutes:
+            form.type === "PISOS" && form.effectiveCleaningMinutes.trim()
+              ? Number(form.effectiveCleaningMinutes)
+              : null,
           coversBreakfast: form.coversBreakfast,
           coversLunch: form.coversLunch,
           coversDinner: form.coversDinner,
@@ -211,7 +268,9 @@ export default function ShiftMastersPage() {
 
       setForm(initialForm);
 setEditingId(null);
+setIsFormOpen(false);
 setDepartments([]);
+setWorkAreas([]);
 await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al guardar.");
@@ -222,6 +281,7 @@ await loadData();
 
 function handleEdit(item: ShiftMaster) {
   setEditingId(item.id);
+  setIsFormOpen(true);
 
   setForm({
     code: item.code,
@@ -229,11 +289,16 @@ function handleEdit(item: ShiftMaster) {
     description: item.description ?? "",
     workplaceId: item.workplaceId,
     departmentId: item.departmentId,
+    workAreaId: item.workAreaId ?? "",
     type: item.type,
     startTime: formatMinutes(item.startMinute),
     endTime: formatMinutes(item.endMinute),
     crossesMidnight: item.crossesMidnight,
     isPartial: item.isPartial,
+    effectiveCleaningMinutes:
+      item.effectiveCleaningMinutes == null
+        ? ""
+        : String(item.effectiveCleaningMinutes),
     coversBreakfast: item.coversBreakfast,
     coversLunch: item.coversLunch,
     coversDinner: item.coversDinner,
@@ -242,6 +307,9 @@ function handleEdit(item: ShiftMaster) {
   });
 
   void loadDepartments(item.workplaceId);
+  if (item.departmentId) {
+    void loadWorkAreas(item.departmentId);
+  }
 }
 
 async function handleDelete(id: string) {
@@ -272,8 +340,18 @@ async function handleDelete(id: string) {
 
 function cancelEdit() {
   setEditingId(null);
+  setIsFormOpen(false);
   setForm(initialForm);
   setDepartments([]);
+  setWorkAreas([]);
+}
+
+function openCreateForm() {
+  setEditingId(null);
+  setForm(initialForm);
+  setDepartments([]);
+  setWorkAreas([]);
+  setIsFormOpen(true);
 }
   return (
     <main className="page-shell">
@@ -295,6 +373,7 @@ function cancelEdit() {
       ) : null}
 
       <section className="layout-grid">
+        {isFormOpen ? (
         <form className="form-card" onSubmit={handleSubmit}>
           <h2>{editingId ? "Editar maestro de turno" : "Nuevo maestro de turno"}</h2>
 
@@ -353,6 +432,24 @@ function cancelEdit() {
             </div>
 
             <div className="field">
+              <label>Área</label>
+              <select
+                value={form.workAreaId}
+                onChange={(event) =>
+                  updateField("workAreaId", event.target.value)
+                }
+                disabled={!form.departmentId}
+              >
+                <option value="">Sin área específica</option>
+                {filteredWorkAreas.map((workArea) => (
+                  <option key={workArea.id} value={workArea.id}>
+                    {workArea.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="field">
               <label>Tipo</label>
               <select
                 value={form.type}
@@ -383,6 +480,22 @@ function cancelEdit() {
                 onChange={(event) => updateField("endTime", event.target.value)}
               />
             </div>
+
+            {form.type === "PISOS" ? (
+              <div className="field">
+                <label>Minutos efectivos limpieza</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={1440}
+                  value={form.effectiveCleaningMinutes}
+                  onChange={(event) =>
+                    updateField("effectiveCleaningMinutes", event.target.value)
+                  }
+                  placeholder="Ej. 390"
+                />
+              </div>
+            ) : null}
 
             <div className="field full">
               <label>Descripción</label>
@@ -491,9 +604,15 @@ function cancelEdit() {
 </div>
 
         </form>
+        ) : null}
 
         <section className="list-card">
-          <h2>Plantillas existentes</h2>
+          <div className="list-header">
+            <h2>Plantillas existentes</h2>
+            <button type="button" className="create-button" onClick={openCreateForm}>
+              Nuevo turno
+            </button>
+          </div>
 
           {isLoading ? (
             <div className="state-card">
@@ -524,6 +643,7 @@ function cancelEdit() {
                     <p>
                       {item.workplace?.name ?? "Sin centro"} ·{" "}
                       {item.department?.name ?? "Sin departamento"}
+                      {item.workArea?.name ? ` · ${item.workArea.name}` : ""}
                     </p>
                   </div>
 
@@ -593,7 +713,9 @@ function cancelEdit() {
 
         .layout-grid {
           display: grid;
-          grid-template-columns: minmax(360px, 0.9fr) minmax(0, 1.1fr);
+          grid-template-columns: ${isFormOpen
+            ? "minmax(360px, 0.9fr) minmax(0, 1.1fr)"
+            : "1fr"};
           gap: 16px;
           align-items: start;
         }
@@ -617,6 +739,22 @@ function cancelEdit() {
           font-size: 18px;
           font-weight: 900;
           color: #0f172a;
+        }
+
+        .list-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+
+        .list-header h2 {
+          margin: 0;
+        }
+
+        .create-button {
+          white-space: nowrap;
         }
 
         .form-grid {

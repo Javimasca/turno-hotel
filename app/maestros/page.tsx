@@ -67,6 +67,14 @@ export default function MaestrosPage() {
             <span className="nav-card-link">Gestionar →</span>
           </Link>
 
+          <Link href="/maestros/zonas-trabajo" className="nav-card">
+            <h2 className="nav-card-title">Ãreas de trabajo</h2>
+            <p className="nav-card-text">
+              Gestionamos las zonas operativas de cada departamento.
+            </p>
+            <span className="nav-card-link">Gestionar â†’</span>
+          </Link>
+
           <Link
             href="/maestros/categorias-profesionales"
             className="nav-card"
@@ -112,6 +120,15 @@ export default function MaestrosPage() {
               departamento.
             </p>
             <span className="nav-card-link">Abrir →</span>
+          </Link>
+
+          <Link href="/maestros/habitaciones" className="nav-card">
+            <h2 className="nav-card-title">Habitaciones</h2>
+            <p className="nav-card-text">
+              Definimos minutos de limpieza de cliente y salida por tipo de
+              habitación.
+            </p>
+            <span className="nav-card-link">Gestionar →</span>
           </Link>
 
           <Link href="/maestros/ausencias" className="nav-card">

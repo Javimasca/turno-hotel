@@ -58,6 +58,7 @@ export const shiftMasterRepository = {
     description?: string | null;
     workplaceId: string;
     departmentId: string;
+    workAreaId?: string | null;
     jobCategoryId?: string | null;
     type?: ShiftMasterType;
     startMinute: number;
@@ -65,6 +66,7 @@ export const shiftMasterRepository = {
     crossesMidnight?: boolean;
     isPartial?: boolean;
     backgroundColor?: string | null;
+    effectiveCleaningMinutes?: number | null;
     coversBreakfast?: boolean;
     coversLunch?: boolean;
     coversDinner?: boolean;
@@ -84,6 +86,7 @@ export const shiftMasterRepository = {
       description?: string | null;
       workplaceId?: string;
       departmentId?: string;
+      workAreaId?: string | null;
       jobCategoryId?: string | null;
       type?: ShiftMasterType;
       startMinute?: number;
@@ -91,6 +94,7 @@ export const shiftMasterRepository = {
       crossesMidnight?: boolean;
       isPartial?: boolean;
       backgroundColor?: string | null;
+      effectiveCleaningMinutes?: number | null;
       coversBreakfast?: boolean;
       coversLunch?: boolean;
       coversDinner?: boolean;

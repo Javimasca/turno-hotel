@@ -57,6 +57,14 @@ export default function PlanificacionPage() {
             </p>
             <span className="nav-card-link">Abrir →</span>
           </Link>
+
+          <Link href="/planificacion/pisos" className="nav-card">
+            <h2 className="nav-card-title">Pisos</h2>
+            <p className="nav-card-text">
+              Calculamos minutos hombre por habitaciones de cliente y salida.
+            </p>
+            <span className="nav-card-link">Abrir →</span>
+          </Link>
         </section>
       ) : null}
 
